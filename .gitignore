@@ -43,3 +43,6 @@ next-env.d.ts
 
 # local dev database volume (docker-compose.yml)
 /.docker/
+
+# Claude Code / app-local tooling config (auto-generated, machine-specific)
+/.claude/
