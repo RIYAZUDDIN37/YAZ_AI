@@ -22,12 +22,13 @@ const DEMO_OWNER = {
 };
 
 async function main() {
-  const business = await seedBusiness();
+  const { business, ownerUserId } = await seedBusiness();
   const categories = await seedCategories(business.id);
   const products = await seedProducts(business.id, categories);
   await seedInventory(business.id, products);
   const customers = await seedCustomers(business.id);
   await seedLeads(business.id, customers);
+  await seedConversations(business.id, ownerUserId, customers);
 
   console.log("\nSeed complete.");
   console.log(`  Business: ${business.name} (${business.slug})`);
@@ -70,7 +71,7 @@ async function seedBusiness() {
     },
   });
 
-  return business;
+  return { business, ownerUserId: user.id };
 }
 
 const CATEGORY_DEFS = [
@@ -392,6 +393,86 @@ async function seedLeads(
           ],
         },
       },
+    });
+  }
+}
+
+const CONVERSATION_DEFS: {
+  customerIndex: number;
+  status: "HUMAN_HANDLING" | "RESOLVED";
+  thread: { from: "CUSTOMER" | "STAFF"; body: string }[];
+}[] = [
+  {
+    customerIndex: 0,
+    status: "RESOLVED",
+    thread: [
+      { from: "CUSTOMER", body: "Do you have the Oslo 6-Seater in walnut, in stock?" },
+      { from: "STAFF", body: "Yes, we have it in stock at the Pune showroom. Want me to hold one for you?" },
+      { from: "CUSTOMER", body: "Yes please, I'll come by this weekend to pay and arrange delivery." },
+    ],
+  },
+  {
+    customerIndex: 1,
+    status: "HUMAN_HANDLING",
+    thread: [
+      { from: "CUSTOMER", body: "Looking to refresh my living room — sofa and a coffee table. What would you recommend under 70k?" },
+      { from: "STAFF", body: "The Haven 3-Seater Sofa (54,999) with the Aster Coffee Table (11,200) comes to 66,199 total — I'll send a formal quotation over." },
+    ],
+  },
+  {
+    customerIndex: 3,
+    status: "HUMAN_HANDLING",
+    thread: [
+      { from: "CUSTOMER", body: "I'd like to see the dining tables in person before deciding." },
+      { from: "STAFF", body: "Of course — does this Saturday afternoon work for a showroom visit?" },
+      { from: "CUSTOMER", body: "Saturday works, thank you." },
+    ],
+  },
+];
+
+async function seedConversations(
+  businessId: string,
+  ownerUserId: string,
+  customers: Awaited<ReturnType<typeof seedCustomers>>,
+) {
+  for (const def of CONVERSATION_DEFS) {
+    const customer = customers[def.customerIndex];
+    const existing = await db.conversation.findFirst({
+      where: { businessId, customerId: customer.id },
+    });
+    if (existing) continue;
+
+    const [first, ...rest] = def.thread;
+    const conversation = await db.conversation.create({
+      data: {
+        businessId,
+        customerId: customer.id,
+        assignedToUserId: ownerUserId,
+        status: def.status,
+        messages: {
+          create: {
+            senderType: first.from,
+            senderUserId: first.from === "STAFF" ? ownerUserId : null,
+            body: first.body,
+          },
+        },
+      },
+    });
+
+    for (const entry of rest) {
+      await db.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderType: entry.from,
+          senderUserId: entry.from === "STAFF" ? ownerUserId : null,
+          body: entry.body,
+        },
+      });
+    }
+
+    await db.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: new Date() },
     });
   }
 }

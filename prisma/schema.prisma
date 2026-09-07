@@ -67,6 +67,28 @@ enum LeadStatus {
   LOST
 }
 
+/// spec section 11 (Human Handoff), exactly the four states named there.
+/// Nothing sets AI_HANDLING yet — Phase 7-8 adds the orchestration engine
+/// that actually handles a conversation; until then, every conversation
+/// starts (and stays) human-handled because there is no AI to hand off to.
+enum ConversationStatus {
+  AI_HANDLING
+  HUMAN_NEEDED
+  HUMAN_HANDLING
+  RESOLVED
+}
+
+/// Who authored a Message. AI is a real option in the schema now so
+/// Phase 7-8 doesn't need a migration to add it — but nothing writes
+/// senderType: AI yet, and the UI must never label a message AI-authored
+/// unless an actual AgentExecution produced it.
+enum MessageSenderType {
+  CUSTOMER
+  AI
+  STAFF
+  SYSTEM
+}
+
 // ---------------------------------------------------------------------------
 // Identity & tenancy
 // ---------------------------------------------------------------------------
@@ -83,6 +105,8 @@ model User {
   memberships    OrganizationMember[]
   auditLogEntries AuditLog[]
   customerNotes   CustomerNote[]
+  assignedConversations Conversation[] @relation("AssignedConversations")
+  sentMessages          Message[]      @relation("SentMessages")
 
   @@map("users")
 }
@@ -143,6 +167,7 @@ model Business {
   customers         Customer[]
   customerTags      CustomerTag[]
   leads             Lead[]
+  conversations     Conversation[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -326,6 +351,7 @@ model Customer {
   tags       CustomerTag[]
   notes      CustomerNote[]
   leads      Lead[]
+  conversations Conversation[]
 
   @@index([businessId])
   @@index([email])
@@ -377,6 +403,46 @@ model LeadActivity {
 
   @@index([leadId])
   @@map("lead_activities")
+}
+
+// ---------------------------------------------------------------------------
+// Conversations — spec sections 6, 11, 17. No ConversationParticipant or
+// MessageAttachment yet: a single `assignedToUserId` covers "who's
+// handling this" until multi-participant tracking is actually needed, and
+// attachments wait for the file-storage abstraction (Phase 9).
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id             String             @id @default(cuid())
+  businessId     String
+  customerId     String?
+  assignedToUserId String?
+  status         ConversationStatus @default(HUMAN_HANDLING)
+  lastMessageAt  DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer       Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedTo     User?              @relation("AssignedConversations", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages       Message[]
+
+  @@index([businessId, lastMessageAt])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String            @id @default(cuid())
+  conversationId String
+  senderType     MessageSenderType
+  senderUserId   String?
+  body           String
+  createdAt      DateTime          @default(now())
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser     User?             @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 // ---------------------------------------------------------------------------

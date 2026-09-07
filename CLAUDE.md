@@ -38,13 +38,19 @@ concerns (auth, authorization, the db client), `lib/` holds cross-cutting
 utilities, `config/` holds data-driven configuration (e.g. the five
 industries).
 
-**Two non-obvious things that will trip you up if you don't know them:**
+**Three non-obvious things that will trip you up if you don't know them:**
 
 1. shadcn/ui here is built on **Base UI**, not Radix. Polymorphism is a
    `render` prop (`<Button render={<Link .../>} />`), not `asChild`.
 2. Server actions in this codebase take **typed objects**, not
    `FormData` — RHF validates client-side, then calls the action
    directly with the validated value.
+3. Base UI's `<Select.Value>` does **not** auto-resolve a label from the
+   selected value the way Radix's does — it renders the raw value
+   unless you pass it a `children` render function
+   (`<SelectValue>{(value) => lookup(value)}</SelectValue>`). Found this
+   the hard way in the Inbox's "new conversation" dialog, where it was
+   showing a raw customer cuid instead of the customer's name.
 
 ## Commands
 
@@ -140,6 +146,35 @@ matching the example file's defaults.
 - Dashboard Overview now shows real counts (Leads, Products, Customers)
   queried live — no more hardcoded zeros for the data that now exists.
 
+### Done (Phase 6)
+
+- Prisma schema: `Conversation`, `Message`, plus `ConversationStatus`
+  and `MessageSenderType` enums (the latter includes `AI` for
+  forward-compatibility — nothing writes it yet; see `docs/DATABASE.md`).
+- New `conversations:manage` permission, granted to all four roles
+  including STAFF (spec section 6: staff get conversation access, not
+  business-wide settings).
+- Real Inbox at `/dashboard/inbox` — three-pane layout (conversation
+  list, thread, context panel), Intercom-style per spec section 17:
+  - "Log a conversation" — a staff member recording real customer
+    contact (a call/email/walk-in) as a new conversation; picks an
+    existing customer, enters what they said.
+  - Persisted, real-time-feeling replies (server action + revalidation,
+    no fake optimistic UI).
+  - Mark resolved / reopen — genuinely functional status toggle. No
+    "return to AI" control yet — there's no AI to hand back to, and
+    showing one would be dead UI.
+  - Context panel shows the conversation's real customer info and any
+    linked leads (cross-referencing Phase 3's CRM data) — an "AI
+    Activity" section honestly states none exists yet rather than
+    showing anything fabricated.
+- Dashboard nav is no longer a single item — added Overview + Inbox,
+  both real, active-state aware (`src/components/dashboard/nav-link.tsx`).
+- `prisma/seed.ts` extended: 3 realistic conversations for Urban Living
+  (multi-message threads, one resolved) — plain CRM events, not
+  AI-attributed.
+- Overview's "Conversations" stat now wired to a real count too.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -152,6 +187,17 @@ browser session, and independently confirmed the rows via `psql` —
 `onboardedAt` set), `ai_agents` (Maya, ONLINE), and both `audit_logs`
 rows (`user.registered` → `business.onboarded`) with correct foreign
 keys. Not merely typechecked — actually run.
+
+**Phase 6 live-verified** (2026-09-07): signed in as the seeded demo
+owner, opened Inbox, confirmed all 3 seeded conversations render with
+correct message attribution/timestamps/lead cross-referencing; sent a
+live reply (persisted, correctly attributed, list preview updated);
+toggled Mark resolved / Reopen (persisted); used "Log a conversation" to
+create a brand-new conversation for a different customer end-to-end,
+confirmed it correctly pulled that customer's existing lead into the
+context panel. Found and fixed the Base UI `Select.Value` bug (above)
+during this pass — the customer picker was showing raw cuids until
+fixed.
 
 `npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
 below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
@@ -192,30 +238,30 @@ elsewhere.
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- Dashboard nav is intentionally minimal (no Inbox/Customers/etc. links)
-  because those pages don't exist yet — adding the links before the
-  pages would be dead navigation, which the spec explicitly forbids.
+- Dashboard nav now has two real items (Overview, Inbox) — still no
+  Customers/Leads/Products links, because those dedicated pages don't
+  exist yet (Phase 4-5). Adding the links before the pages would be
+  dead navigation, which the spec explicitly forbids.
+- Inbox's "return to AI" control is intentionally absent — there's no
+  AI to hand a conversation back to yet (Phase 7-8).
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 6** — conversation system (Conversation/Message persistence,
-   Intercom-style inbox UI) for Urban Living only, scoped to what the
-   next step needs to actually demo.
-2. **Phase 7–8** — `AIProvider`/`AIChatService`/`AgentOrchestrator`/
+1. **Phase 7–8** — `AIProvider`/`AIChatService`/`AgentOrchestrator`/
    `ToolRegistry` per `docs/AI-ARCHITECTURE.md`, starting with the mock
    adapter; first real tool calls (`searchProducts`, `checkInventory`,
    `createLead` now have real tables to query/write against, from
-   Phase 3).
-3. **Phase 9–10** — knowledge/RAG pipeline; Train/Test AI employee UI
+   Phase 3; conversations to act within, from Phase 6).
+2. **Phase 9–10** — knowledge/RAG pipeline; Train/Test AI employee UI
    (test simulator must call the same orchestrator as real conversations).
-4. **Phase 4–5** — full owner workspace nav + customers/leads/
+3. **Phase 4–5** — full owner workspace nav + customers/leads/
    appointments/products CRUD UI (the schema and dashboard stat counts
    already exist from Phase 3; this is the dedicated list/detail/edit
    pages).
-5. **Phase 15** — extend to the other four industries (Restaurant,
+4. **Phase 15** — extend to the other four industries (Restaurant,
    Salon, Dental, Electronics): seed data + any industry-specific tool
    behavior (e.g. Dental's never-diagnose guardrail).
-6. Then automations (13), commerce — quotations/orders/payments (14),
+5. Then automations (13), commerce — quotations/orders/payments (14),
    the customer-facing widget (16), analytics (17), and hardening/
    testing/polish (18–20), per the original phase list. Update this file
    after each phase, not just at the end.

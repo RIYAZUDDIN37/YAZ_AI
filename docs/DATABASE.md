@@ -17,6 +17,7 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
          ──< CustomerTag
          ──< Customer ──< CustomerNote
                        ──< Lead ──< LeadActivity
+                       ──< Conversation ──< Message
 ```
 
 - **User** — one row per human. `passwordHash` (bcrypt, 12 rounds) backs
@@ -70,13 +71,26 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
   qualification signals become their own `LeadActivity` rows written
   from actual agent execution — never seeded or fabricated ahead of that
   (see `prisma/seed.ts`'s doc comment).
+- **Conversation / Message** — spec sections 6, 11, 17. `status` is one
+  of the four states spec section 11 names (`AI_HANDLING` /
+  `HUMAN_NEEDED` / `HUMAN_HANDLING` / `RESOLVED`), but nothing sets
+  `AI_HANDLING` yet — there's no orchestration engine to hand a
+  conversation to until Phase 7-8, so every conversation today starts
+  and stays human-handled. `Message.senderType` includes `AI` in the
+  enum for the same forward-compatibility reason as `AI_HANDLING` — the
+  schema is ready, nothing writes it yet. No `ConversationParticipant`
+  or `MessageAttachment` table yet: a single `assignedToUserId` on
+  `Conversation` covers "who's handling this" until multi-participant
+  tracking is actually needed, and attachments wait for the file-storage
+  abstraction (Phase 9).
 
 Seed data for all of the above lives in
 [`prisma/seed.ts`](../prisma/seed.ts) — one realistic business (Urban
 Living, furniture) with 11 products across 4 categories (some with
-color/finish variants and real inventory counts), 5 customers, and 5
-leads spread across every `LeadStatus`. Idempotent — safe to re-run via
-`npm run db:seed`.
+color/finish variants and real inventory counts), 5 customers, 5 leads
+spread across every `LeadStatus`, and 3 conversations (one resolved, two
+being handled) with realistic multi-message threads. Idempotent — safe
+to re-run via `npm run db:seed`.
 
 ## Why cascade behavior is set the way it is
 
@@ -93,6 +107,12 @@ leads spread across every `LeadStatus`. Idempotent — safe to re-run via
   customer `SetNull` (a lead can outlive the customer record it started
   from); `InventoryItem`/`ProductVariant` → `Cascade` from `Product`
   (stock and variants are meaningless without the product they belong to).
+- `Message` → `Cascade` from `Conversation`; `Conversation.customerId` →
+  `SetNull` (a conversation record and its transcript should outlive a
+  deleted customer, same reasoning as `Lead.customerId`).
+  `Conversation.assignedToUserId` and `Message.senderUserId` → `SetNull`
+  (losing the user who handled something shouldn't delete the history of
+  what happened).
 
 ## Tenant isolation, structurally
 
@@ -104,8 +124,6 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 ## What's coming (by phase, not yet in the schema)
 
-- **Phase 6 (conversations)**: `Conversation`, `ConversationParticipant`,
-  `Message`, `MessageAttachment`.
 - **Phase 7–9 (agent + knowledge)**: `AgentConfiguration`,
   `AgentPersonality`, `AgentCapability`, `AgentRule`, `AgentGoal`,
   `KnowledgeDocument`, `KnowledgeChunk`, `KnowledgeSource`.

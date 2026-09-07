@@ -13,19 +13,21 @@ export default async function DashboardOverviewPage() {
   const business = membership.organization.businesses[0];
   if (!business) redirect("/onboarding");
 
-  const [agent, leadCount, productCount, customerCount] = await Promise.all([
-    db.aIAgent.findFirst({
-      where: { businessId: business.id },
-      orderBy: { createdAt: "asc" },
-    }),
-    db.lead.count({ where: { businessId: business.id } }),
-    db.product.count({ where: { businessId: business.id } }),
-    db.customer.count({ where: { businessId: business.id } }),
-  ]);
+  const [agent, conversationCount, leadCount, productCount, customerCount] =
+    await Promise.all([
+      db.aIAgent.findFirst({
+        where: { businessId: business.id },
+        orderBy: { createdAt: "asc" },
+      }),
+      db.conversation.count({ where: { businessId: business.id } }),
+      db.lead.count({ where: { businessId: business.id } }),
+      db.product.count({ where: { businessId: business.id } }),
+      db.customer.count({ where: { businessId: business.id } }),
+    ]);
   const industryConfig = getIndustryConfig(business.industry);
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto h-full max-w-6xl space-y-8 overflow-y-auto px-6 py-10">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
         <p className="mt-1 text-muted-foreground">
@@ -56,7 +58,7 @@ export default async function DashboardOverviewPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
-              <Stat label="Conversations" value="0" />
+              <Stat label="Conversations" value={String(conversationCount)} />
               <Stat label="Leads" value={String(leadCount)} />
               <Stat
                 label={`${industryConfig.appointmentLabel}s`}
@@ -82,13 +84,15 @@ export default async function DashboardOverviewPage() {
 
       <Card className="border-dashed">
         <CardContent className="py-10 text-center">
-          <p className="font-medium">Foundation + catalogue/CRM schema are real.</p>
+          <p className="font-medium">Conversations are real — the AI isn&apos;t, yet.</p>
           <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground text-pretty">
-            Auth, your workspace, your AI employee, and the product/customer/
-            lead data above are persisted. Conversations, appointments,
-            knowledge upload, and the agent orchestration engine are built in
-            the phases that follow — they&apos;ll appear here as they land,
-            not as placeholders.
+            <a href="/dashboard/inbox" className="underline underline-offset-2">
+              Inbox
+            </a>{" "}
+            is a working conversation system — persisted messages, human
+            replies, real state. What&apos;s next is the AI orchestration
+            engine that lets Maya actually handle these instead of a human
+            doing it manually every time.
           </p>
         </CardContent>
       </Card>
