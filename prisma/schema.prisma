@@ -1,0 +1,162 @@
+// YAZ AI — Prisma schema
+// See docs/DATABASE.md for the full entity-relationship rationale.
+//
+// This file currently covers the foundation needed for Phase 1/2
+// (auth, multi-tenancy, onboarding): User -> OrganizationMember ->
+// Organization -> Business -> AIAgent, plus AuditLog.
+// The full domain model (conversations, knowledge, tools, orders,
+// quotations, appointments, automations...) is added in Phase 3+
+// and tracked in CLAUDE.md's "Next steps".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// Role of a user within one specific Organization. Centralized permission
+/// checks (see src/server/authorization) key off this — never scatter role
+/// checks ad hoc across components.
+enum OrgRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+/// The vertical a Business operates in. Drives which industry configuration
+/// (src/config/industries) is used to label/shape products vs. services,
+/// appointment terminology, etc. The underlying schema stays shared.
+enum BusinessIndustry {
+  FURNITURE
+  RESTAURANT
+  SALON
+  DENTAL
+  ELECTRONICS
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model User {
+  id             String               @id @default(cuid())
+  name           String
+  email          String               @unique
+  passwordHash   String
+  emailVerified  DateTime?
+  image          String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  memberships    OrganizationMember[]
+  auditLogEntries AuditLog[]
+
+  @@map("users")
+}
+
+/// A workspace. One User can eventually belong to multiple Organizations
+/// (agency / multi-brand use case); v1 onboarding creates exactly one.
+model Organization {
+  id        String               @id @default(cuid())
+  name      String
+  slug      String               @unique
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  members   OrganizationMember[]
+  businesses Business[]
+  auditLogs AuditLog[]
+
+  @@map("organizations")
+}
+
+/// Join table carrying the user's role for that organization. This is the
+/// row every authorization check ultimately reads.
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole      @default(OWNER)
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+/// One physical/operational business under an Organization. Everything
+/// tenant-owned (agents, customers, products...) hangs off businessId, and
+/// every service-layer query must filter by it — see docs/SECURITY.md.
+model Business {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String           @unique
+  industry       BusinessIndustry
+  timezone       String           @default("Asia/Kolkata")
+  currency       String           @default("INR")
+  onboardedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agents         AIAgent[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId])
+  @@map("businesses")
+}
+
+// ---------------------------------------------------------------------------
+// AI employee (minimal stub — expanded in Phase 7-10 with configuration,
+// personality, capabilities, rules, knowledge, tools)
+// ---------------------------------------------------------------------------
+
+model AIAgent {
+  id         String      @id @default(cuid())
+  businessId String
+  name       String
+  title      String
+  status     AgentStatus @default(OFFLINE)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("ai_agents")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail — every consequential action (signup, org/business creation,
+// role changes, later: agent actions, tool executions) writes here.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  businessId     String?
+  userId         String?
+  action         String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  business       Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([businessId])
+  @@index([userId])
+  @@map("audit_logs")
+}
