@@ -1,7 +1,8 @@
-import type { Conversation, Customer, Lead } from "@prisma/client";
+import type { AgentAction, AgentExecution, Conversation, Customer, Lead } from "@prisma/client";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 const LEAD_STATUS_LABEL: Record<Lead["status"], string> = {
   NEW: "New",
@@ -13,12 +14,16 @@ const LEAD_STATUS_LABEL: Record<Lead["status"], string> = {
   LOST: "Lost",
 };
 
+type ExecutionWithActions = AgentExecution & { actions: AgentAction[] };
+
 export function ContextPanel({
   conversation,
   leads,
+  executions,
 }: {
   conversation: Conversation & { customer: Customer | null };
   leads: Lead[];
+  executions: ExecutionWithActions[];
 }) {
   const { customer } = conversation;
 
@@ -83,9 +88,48 @@ export function ContextPanel({
           <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             AI activity
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground text-pretty">
-            No AI activity — orchestration isn&apos;t built yet.
-          </p>
+          {executions.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground text-pretty">
+              No AI activity on this conversation yet.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-3">
+              {executions.map((execution) => (
+                <li key={execution.id} className="rounded-lg border border-border p-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "size-1.5 rounded-full",
+                        execution.status === "SUCCESS"
+                          ? "bg-success"
+                          : execution.status === "ESCALATED"
+                            ? "bg-warning"
+                            : "bg-destructive",
+                      )}
+                    />
+                    <p className="text-xs font-medium">{execution.summary}</p>
+                  </div>
+                  {execution.actions.length > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {execution.actions.map((action) => (
+                        <Badge key={action.id} variant="outline" className="text-[10px]">
+                          {action.toolName}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    {new Date(execution.createdAt).toLocaleString(undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </ScrollArea>

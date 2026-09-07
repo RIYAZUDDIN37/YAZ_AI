@@ -168,6 +168,7 @@ model Business {
   customerTags      CustomerTag[]
   leads             Lead[]
   conversations     Conversation[]
+  agentExecutions   AgentExecution[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -187,6 +188,7 @@ model AIAgent {
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  executions AgentExecution[]
 
   @@index([businessId])
   @@map("ai_agents")
@@ -425,6 +427,7 @@ model Conversation {
   customer       Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
   assignedTo     User?              @relation("AssignedConversations", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages       Message[]
+  agentExecutions AgentExecution[]
 
   @@index([businessId, lastMessageAt])
   @@index([customerId])
@@ -442,7 +445,70 @@ model Message {
   senderUser     User?             @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
+  triggeredExecutions AgentExecution[] @relation("ExecutionTrigger")
+  repliedExecutions   AgentExecution[] @relation("ExecutionReply")
   @@map("messages")
+}
+
+/// One row per agentic turn — spec section 8's whole pipeline, from
+/// "understand the message" through "log what happened", condensed into
+/// one row plus its child AgentActions. `trace` holds the structured
+/// step-by-step record (intent, tools considered, rules checked) that
+/// backs both the "AI Activity" feed (spec section 18) and the Test
+/// Employee simulator's trace panel (spec section 14) — both read real
+/// AgentExecution rows, never a separately-maintained fake log.
+enum AgentExecutionStatus {
+  SUCCESS
+  ESCALATED
+  ERROR
+}
+
+model AgentExecution {
+  id               String               @id @default(cuid())
+  businessId       String
+  conversationId   String
+  agentId          String
+  triggerMessageId String
+  replyMessageId   String?
+  status           AgentExecutionStatus
+  /// One-line human-readable summary, e.g. "Searched products, found 2
+  /// matches, replied with recommendations."
+  summary          String
+  /// Structured step log: [{ step: "intent" | "tool_call" | "rule_check" |
+  /// "response" | "escalation", ... }] — see docs/AI-ARCHITECTURE.md.
+  trace            Json
+  errorMessage     String?
+  createdAt        DateTime             @default(now())
+  completedAt      DateTime?
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation     Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent            AIAgent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  triggerMessage   Message              @relation("ExecutionTrigger", fields: [triggerMessageId], references: [id], onDelete: Cascade)
+  replyMessage     Message?             @relation("ExecutionReply", fields: [replyMessageId], references: [id], onDelete: SetNull)
+  actions          AgentAction[]
+
+  @@index([businessId])
+  @@index([conversationId])
+  @@map("agent_executions")
+}
+
+/// One row per tool call the AI actually made within an AgentExecution.
+/// The AI never touches the database directly — every effect it has goes
+/// through a row here, which is what makes "the AI is never trusted with
+/// unrestricted access" (docs/SECURITY.md) an enforced fact, not a promise.
+model AgentAction {
+  id           String         @id @default(cuid())
+  executionId  String
+  toolName     String
+  input        Json
+  output       Json?
+  status       String
+  errorMessage String?
+  createdAt    DateTime       @default(now())
+  execution    AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@map("agent_actions")
 }
 
 // ---------------------------------------------------------------------------

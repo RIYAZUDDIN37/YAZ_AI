@@ -20,7 +20,7 @@ export default async function InboxPage({
 
   const { c: selectedId } = await searchParams;
 
-  const [conversations, customers] = await Promise.all([
+  const [conversations, customers, agent] = await Promise.all([
     db.conversation.findMany({
       where: { businessId: business.id },
       orderBy: { lastMessageAt: "desc" },
@@ -32,6 +32,10 @@ export default async function InboxPage({
     db.customer.findMany({
       where: { businessId: business.id },
       orderBy: { name: "asc" },
+    }),
+    db.aIAgent.findFirst({
+      where: { businessId: business.id },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -50,12 +54,21 @@ export default async function InboxPage({
       })
     : null;
 
-  const activeLeads = active?.customerId
-    ? await db.lead.findMany({
-        where: { customerId: active.customerId },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
+  const [activeLeads, activeExecutions] = active
+    ? await Promise.all([
+        active.customerId
+          ? db.lead.findMany({
+              where: { customerId: active.customerId },
+              orderBy: { createdAt: "desc" },
+            })
+          : Promise.resolve([]),
+        db.agentExecution.findMany({
+          where: { conversationId: active.id },
+          orderBy: { createdAt: "desc" },
+          include: { actions: true },
+        }),
+      ])
+    : [[], []];
 
   return (
     <div className="grid h-full grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[280px_1fr_300px]">
@@ -67,9 +80,9 @@ export default async function InboxPage({
 
       {active ? (
         <>
-          <ConversationThread conversation={active} />
+          <ConversationThread conversation={active} agentName={agent?.name ?? "AI"} />
           <div className="hidden lg:block">
-            <ContextPanel conversation={active} leads={activeLeads} />
+            <ContextPanel conversation={active} leads={activeLeads} executions={activeExecutions} />
           </div>
         </>
       ) : (

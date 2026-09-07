@@ -24,10 +24,9 @@ const envSchema = z.object({
 
   REDIS_URL: z.string().optional(),
 
-  AI_PROVIDER: z.enum(["mock", "openai", "anthropic"]).default("mock"),
-  OPENAI_API_KEY: z.string().optional(),
+  AI_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
   ANTHROPIC_API_KEY: z.string().optional(),
-  AI_CHAT_MODEL: z.string().default("gpt-4o-mini"),
+  AI_CHAT_MODEL: z.string().default("claude-opus-5"),
   AI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
 
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),

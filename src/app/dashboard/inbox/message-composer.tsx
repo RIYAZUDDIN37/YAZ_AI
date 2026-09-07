@@ -6,10 +6,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { SendHorizontal, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { sendMessageSchema, type SendMessageInput } from "@/lib/validation/conversations";
-import { sendMessageAction } from "./actions";
+import { sendMessageAction, logCustomerMessageAction } from "./actions";
+
+type Mode = "staff" | "customer";
 
 export function MessageComposer({ conversationId }: { conversationId: string }) {
+  const [mode, setMode] = useState<Mode>("staff");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
 
@@ -21,7 +25,8 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
   function onSubmit(values: SendMessageInput) {
     setError(undefined);
     startTransition(async () => {
-      const result = await sendMessageAction(values);
+      const action = mode === "staff" ? sendMessageAction : logCustomerMessageAction;
+      const result = await action(values);
       if (result?.error) {
         setError(result.error);
         return;
@@ -40,14 +45,23 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
         }
       }}
     >
+      <div className="mb-2 flex gap-1">
+        <ModeButton active={mode === "staff"} onClick={() => setMode("staff")}>
+          Reply as yourself
+        </ModeButton>
+        <ModeButton active={mode === "customer"} onClick={() => setMode("customer")}>
+          Log what customer said
+        </ModeButton>
+      </div>
+
       <div className="flex items-end gap-2">
         <Textarea
           rows={2}
-          placeholder="Reply as yourself…"
+          placeholder={mode === "staff" ? "Reply as yourself…" : "What did the customer say?"}
           className="resize-none"
           {...form.register("body")}
         />
-        <Button type="submit" size="icon" disabled={pending} aria-label="Send message">
+        <Button type="submit" size="icon" disabled={pending} aria-label="Send">
           {pending ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
@@ -61,5 +75,30 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
         </p>
       ) : null}
     </form>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-2 py-1 text-xs transition-colors",
+        active
+          ? "bg-accent font-medium text-foreground"
+          : "text-muted-foreground hover:bg-accent/50",
+      )}
+    >
+      {children}
+    </button>
   );
 }

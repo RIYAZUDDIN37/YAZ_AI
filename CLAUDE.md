@@ -51,6 +51,14 @@ industries).
    (`<SelectValue>{(value) => lookup(value)}</SelectValue>`). Found this
    the hard way in the Inbox's "new conversation" dialog, where it was
    showing a raw customer cuid instead of the customer's name.
+4. **`react-hook-form`'s `defaultValues` are read once, at mount.** A
+   form component that receives an id-like prop (e.g. `conversationId`)
+   and isn't remounted when that prop changes will keep submitting
+   against the *original* id forever. Give it `key={theChangingId}` at
+   the call site to force a remount. Found this in the Inbox message
+   composer: switching conversations without a page reload kept sending
+   replies to whichever conversation the composer first mounted with —
+   a real bug caught during live verification, not a hypothetical.
 
 ## Commands
 
@@ -161,9 +169,9 @@ matching the example file's defaults.
     existing customer, enters what they said.
   - Persisted, real-time-feeling replies (server action + revalidation,
     no fake optimistic UI).
-  - Mark resolved / reopen — genuinely functional status toggle. No
-    "return to AI" control yet — there's no AI to hand back to, and
-    showing one would be dead UI.
+  - Take over / Return to AI / Mark resolved / Reopen — the full spec
+    section 11 state machine (superseded by Phase 7-8's real "Return to
+    AI" below — this line kept for history).
   - Context panel shows the conversation's real customer info and any
     linked leads (cross-referencing Phase 3's CRM data) — an "AI
     Activity" section honestly states none exists yet rather than
@@ -174,6 +182,33 @@ matching the example file's defaults.
   (multi-message threads, one resolved) — plain CRM events, not
   AI-attributed.
 - Overview's "Conversations" stat now wired to a real count too.
+
+### Done (Phase 7–8) — the AI orchestration engine
+
+This is the phase that makes YAZ AI more than a well-built CRM. Full
+design/status writeup: `docs/AI-ARCHITECTURE.md` — summary here:
+
+- `AIProvider` abstraction (`src/services/ai/provider.ts`), two
+  implementations: `mock` (default — deterministic keyword matching, but
+  every tool call it makes is 100% real) and `anthropic` (a manual
+  tool-calling loop against Claude, implemented and typechecked but not
+  yet live-verified — no API key on this machine).
+- `ToolRegistry` with 4 real tools (`src/services/ai/tools/`):
+  `searchProducts`, `checkInventory`, `createLead`, `escalateToHuman` —
+  each Zod-validated, logged, and touching the real database.
+- `AgentExecution` / `AgentAction` models — one row per agentic turn / per
+  tool call, feeding the Inbox's "AI activity" panel with real data.
+- The full spec-section-11 conversation lifecycle, all real: new
+  conversations start `AI_HANDLING`; a follow-up customer message
+  re-triggers the AI if still `AI_HANDLING`; a staff reply is an
+  implicit takeover (`HUMAN_HANDLING`); "Return to AI" re-engages the AI
+  immediately if a customer message is waiting unanswered.
+- Escalation (`escalateToHuman`) is the real governance backbone today —
+  see AI-ARCHITECTURE.md's "Governance today vs. the design goal" for
+  exactly what's enforced-in-code vs. still prompt-based.
+- `.env`/`.env.example`/`src/lib/env.ts`: `AI_PROVIDER` narrowed to
+  `"mock" | "anthropic"` (no OpenAI — deliberately not built),
+  `AI_CHAT_MODEL` defaults to `claude-opus-5`, `OPENAI_API_KEY` removed.
 
 ### Verification status
 
@@ -198,6 +233,26 @@ confirmed it correctly pulled that customer's existing lead into the
 context panel. Found and fixed the Base UI `Select.Value` bug (above)
 during this pass — the customer picker was showing raw cuids until
 fixed.
+
+**Phase 7-8 live-verified** (2026-09-07), mock provider, real browser
+session as the seeded owner:
+- Logged a new conversation ("coffee table... budget under 15000") for a
+  customer with no prior conversation — Maya called `searchProducts` →
+  `checkInventory` → `createLead` for real (verified via `psql`: exact
+  matching `AgentAction` input/output rows, a genuine new `Lead`, and the
+  reply persisted as a `Message` with `senderType: AI`), then replied
+  correctly summarizing real stock and price data.
+- Sent an escalation-triggering message ("...speak to a manager") on the
+  same conversation — Maya called `escalateToHuman` for real, flipping
+  the conversation to `HUMAN_NEEDED` (confirmed via `psql`), replied
+  appropriately, and the Inbox showed the "Needs you" badge.
+- Took over (→ `HUMAN_HANDLING`), returned to AI (→ `AI_HANDLING`, no
+  spurious re-run since the last message was already answered), then
+  logged one more customer message ("tv unit under 25000") — Maya picked
+  it back up automatically and found the real `Cornerstone TV Unit`.
+- Found and fixed the `react-hook-form` stale-mount bug (gotcha #4,
+  above) mid-verification: a reply briefly landed on the wrong
+  conversation before the `key` fix; re-verified clean afterward.
 
 `npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
 below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
@@ -231,37 +286,49 @@ elsewhere.
   other packages want ≥20.9/20.19; `prisma`/`@prisma/client` are pinned
   to `6.19.3` to stay compatible. **Recommend upgrading Node** and
   revisiting those pins.
-- **AI orchestration is entirely unimplemented** — `docs/AI-ARCHITECTURE.md`
-  is a design doc for Phases 7–10, not a description of working code.
-  Nothing in the app currently calls an LLM.
+- **The Anthropic provider is unverified against the real API** — no
+  `ANTHROPIC_API_KEY` on this machine. It's implemented and typechecked
+  against the real SDK types, and the mock provider (default) proves the
+  rest of the pipeline works, but genuine LLM-driven tool calling hasn't
+  been run. Add a key to `.env` and set `AI_PROVIDER="anthropic"` to try it.
+- **No knowledge/RAG, no business-configurable `AgentRule`** — Phase
+  9-10. Today's one governance rule (escalate instead of guessing) is
+  hardcoded into the orchestrator's system prompt, not per-business
+  configurable yet. See `docs/AI-ARCHITECTURE.md`.
+- **No OpenAI adapter** — deliberately not built; `AI_PROVIDER` only
+  accepts `"mock"` or `"anthropic"`.
 - No OAuth providers wired (Credentials only) — see ARCHITECTURE.md for
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- Dashboard nav now has two real items (Overview, Inbox) — still no
+- Dashboard nav has two real items (Overview, Inbox) — still no
   Customers/Leads/Products links, because those dedicated pages don't
   exist yet (Phase 4-5). Adding the links before the pages would be
   dead navigation, which the spec explicitly forbids.
-- Inbox's "return to AI" control is intentionally absent — there's no
-  AI to hand a conversation back to yet (Phase 7-8).
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 7–8** — `AIProvider`/`AIChatService`/`AgentOrchestrator`/
-   `ToolRegistry` per `docs/AI-ARCHITECTURE.md`, starting with the mock
-   adapter; first real tool calls (`searchProducts`, `checkInventory`,
-   `createLead` now have real tables to query/write against, from
-   Phase 3; conversations to act within, from Phase 6).
-2. **Phase 9–10** — knowledge/RAG pipeline; Train/Test AI employee UI
-   (test simulator must call the same orchestrator as real conversations).
-3. **Phase 4–5** — full owner workspace nav + customers/leads/
+1. **Phase 9–10** — knowledge/RAG pipeline (`KnowledgeDocument`/
+   `KnowledgeChunk`, upload → chunk → embed → retrieve, scoped to
+   businessId) and business-configurable governance (`AgentRule`,
+   `AgentPersonality`, `AgentGoal` — makes today's hardcoded escalation
+   rule a real per-business setting); Train/Test AI employee UI (the
+   simulator must call the exact same `runAgentTurn` real conversations
+   use, per spec section 14 — no separate fake implementation).
+2. **Phase 4–5** — full owner workspace nav + customers/leads/
    appointments/products CRUD UI (the schema and dashboard stat counts
    already exist from Phase 3; this is the dedicated list/detail/edit
    pages).
-4. **Phase 15** — extend to the other four industries (Restaurant,
+3. **Phase 15** — extend to the other four industries (Restaurant,
    Salon, Dental, Electronics): seed data + any industry-specific tool
-   behavior (e.g. Dental's never-diagnose guardrail).
-5. Then automations (13), commerce — quotations/orders/payments (14),
+   behavior (e.g. Dental's never-diagnose guardrail, once AgentRule
+   exists to enforce it as data rather than another hardcoded prompt line).
+4. Then automations (13), commerce — quotations/orders/payments (14),
    the customer-facing widget (16), analytics (17), and hardening/
    testing/polish (18–20), per the original phase list. Update this file
    after each phase, not just at the end.
+
+**Also worth doing soon, not tied to a specific phase**: get a real
+`ANTHROPIC_API_KEY` into `.env` and live-verify the `anthropic` provider
+— the mock proves the pipeline, but genuine LLM tool-calling is the more
+convincing demo.

@@ -3,14 +3,16 @@ import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAgentTurn } from "@/services/ai/orchestrator";
 import type { StartConversationInput } from "@/lib/validation/conversations";
 
 /**
  * A staff member logging real customer contact — a phone call, an email,
- * a walk-in inquiry — as the opening message of a new conversation. Not
- * an AI-generated conversation; there's no AI orchestration yet (Phase
- * 7-8). The conversation starts assigned to whoever logged it, in
- * HUMAN_HANDLING, since only a human can respond right now.
+ * a walk-in inquiry — as the opening message of a new conversation. The
+ * conversation starts AI_HANDLING: Maya gets the first attempt, same as
+ * a real inbound contact would, escalating to HUMAN_NEEDED herself if
+ * she can't help. `assignedToUserId` still records who logged it, for
+ * when a human does need to step in.
  */
 export async function startConversation(
   businessId: string,
@@ -34,7 +36,7 @@ export async function startConversation(
       businessId,
       customerId: customer.id,
       assignedToUserId: actorUserId,
-      status: "HUMAN_HANDLING",
+      status: "AI_HANDLING",
       messages: {
         create: {
           senderType: "CUSTOMER",
@@ -51,6 +53,19 @@ export async function startConversation(
     businessId,
     metadata: { conversationId: conversation.id, customerId: customer.id },
   });
+
+  const triggerMessage = conversation.messages[0];
+  try {
+    await runAgentTurn({
+      businessId,
+      conversationId: conversation.id,
+      triggerMessageId: triggerMessage.id,
+    });
+  } catch {
+    // runAgentTurn already logs the failure and escalates the
+    // conversation — a provider error shouldn't block the conversation
+    // from having been created.
+  }
 
   return conversation;
 }

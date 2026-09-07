@@ -18,6 +18,9 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
          ──< Customer ──< CustomerNote
                        ──< Lead ──< LeadActivity
                        ──< Conversation ──< Message
+                                        ──< AgentExecution ──< AgentAction
+
+AIAgent ──< AgentExecution
 ```
 
 - **User** — one row per human. `passwordHash` (bcrypt, 12 rounds) backs
@@ -73,16 +76,28 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
   (see `prisma/seed.ts`'s doc comment).
 - **Conversation / Message** — spec sections 6, 11, 17. `status` is one
   of the four states spec section 11 names (`AI_HANDLING` /
-  `HUMAN_NEEDED` / `HUMAN_HANDLING` / `RESOLVED`), but nothing sets
-  `AI_HANDLING` yet — there's no orchestration engine to hand a
-  conversation to until Phase 7-8, so every conversation today starts
-  and stays human-handled. `Message.senderType` includes `AI` in the
-  enum for the same forward-compatibility reason as `AI_HANDLING` — the
-  schema is ready, nothing writes it yet. No `ConversationParticipant`
-  or `MessageAttachment` table yet: a single `assignedToUserId` on
+  `HUMAN_NEEDED` / `HUMAN_HANDLING` / `RESOLVED`) — **all four are real
+  and live-verified** as of Phase 7-8: new conversations start
+  `AI_HANDLING`, `escalateToHuman` sets `HUMAN_NEEDED`, a staff reply
+  sets `HUMAN_HANDLING`, "Return to AI" sets `AI_HANDLING` (and re-runs
+  the orchestrator if there's an unanswered customer message waiting).
+  `Message.senderType: AI` is likewise real now — Maya's replies are
+  persisted as ordinary `Message` rows. No `ConversationParticipant` or
+  `MessageAttachment` table yet: a single `assignedToUserId` on
   `Conversation` covers "who's handling this" until multi-participant
   tracking is actually needed, and attachments wait for the file-storage
   abstraction (Phase 9).
+- **AgentExecution / AgentAction** — spec section 7/18. One
+  `AgentExecution` per agentic turn (`src/services/ai/orchestrator.ts`),
+  one `AgentAction` per tool call within it. `AgentExecution.trace` is a
+  structured JSON step log — the literal data source for the Inbox's "AI
+  activity" panel and, later, the Test Employee simulator's trace view
+  (spec section 14) — nothing there is rendered independent of a real
+  row here. No separate `AgentDecision` table (see AI-ARCHITECTURE.md) —
+  a "decision" that isn't a tool call is a step within
+  `AgentExecution.trace` instead of its own row, revisited if the trace
+  ever needs to be queried/filtered independently rather than just
+  displayed.
 
 Seed data for all of the above lives in
 [`prisma/seed.ts`](../prisma/seed.ts) — one realistic business (Urban
@@ -113,6 +128,12 @@ to re-run via `npm run db:seed`.
   `Conversation.assignedToUserId` and `Message.senderUserId` → `SetNull`
   (losing the user who handled something shouldn't delete the history of
   what happened).
+- `AgentExecution` → `Cascade` from `Business`/`Conversation`/`AIAgent`
+  (an execution has no meaning outside the conversation it happened in);
+  `AgentAction` → `Cascade` from `AgentExecution`. `AgentExecution.
+  triggerMessageId` → `Cascade` (the execution IS a response to that
+  message — no message, no execution); `replyMessageId` → `SetNull`
+  (the execution record should outlive its reply message being deleted).
 
 ## Tenant isolation, structurally
 
@@ -124,11 +145,12 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 ## What's coming (by phase, not yet in the schema)
 
-- **Phase 7–9 (agent + knowledge)**: `AgentConfiguration`,
-  `AgentPersonality`, `AgentCapability`, `AgentRule`, `AgentGoal`,
-  `KnowledgeDocument`, `KnowledgeChunk`, `KnowledgeSource`.
-- **Phase 8 (tools)**: `Tool`, `ToolPermission`, `ToolExecution`,
-  `AgentExecution`, `AgentAction`, `AgentDecision`.
+- **Phase 9–10 (knowledge + business-configurable governance)**:
+  `AgentConfiguration`, `AgentPersonality`, `AgentCapability`,
+  `AgentRule`, `AgentGoal`, `KnowledgeDocument`, `KnowledgeChunk`,
+  `KnowledgeSource`. (`Tool`/`ToolPermission`/`ToolExecution` as
+  database-backed config are also still future — today's tool registry
+  is code, in `src/services/ai/tools/`, not data.)
 - **Phase 13 (automations)**: `Automation`, `AutomationTrigger`,
   `AutomationAction`, `WorkflowExecution`.
 - **Phase 14 (commerce)**: `Appointment`, `AppointmentType`,

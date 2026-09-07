@@ -2,8 +2,9 @@ import { z } from "zod";
 
 /**
  * "Start a conversation" here means a staff member logging real customer
- * contact (a phone call, an email, a walk-in) — not the AI generating
- * anything. See prisma/schema.prisma's Conversation/Message comments.
+ * contact (a phone call, an email, a walk-in). The AI (Maya) gets the
+ * first attempt at it, same as a real inbound contact would — see
+ * src/services/conversations/start-conversation.ts.
  */
 export const startConversationSchema = z.object({
   customerId: z.string().min(1, "Pick a customer"),
@@ -17,7 +18,12 @@ export const sendMessageSchema = z.object({
 });
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
+/** Statuses a human can set directly. AI_HANDLING = "return to AI" (only
+ * meaningful once the AI is actually handling conversations, from Phase
+ * 7-8 onward). HUMAN_NEEDED isn't human-settable — that's the AI's own
+ * escalation signal via the escalateToHuman tool. */
 export const conversationStatusValues = [
+  "AI_HANDLING",
   "HUMAN_HANDLING",
   "RESOLVED",
 ] as const;

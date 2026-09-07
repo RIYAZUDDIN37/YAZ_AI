@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { Conversation, Customer, Message } from "@prisma/client";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { NewConversationDialog } from "./new-conversation-dialog";
+import { ConversationStatusBadge } from "./conversation-status-badge";
 
 type ConversationRow = Conversation & {
   customer: Customer | null;
@@ -50,11 +50,7 @@ export function ConversationList({
                       <p className="truncate text-sm font-medium">
                         {conversation.customer?.name ?? "Unknown customer"}
                       </p>
-                      {conversation.status === "RESOLVED" ? (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Resolved
-                        </Badge>
-                      ) : null}
+                      <ConversationStatusBadge status={conversation.status} />
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {lastMessage?.body ?? "No messages yet"}

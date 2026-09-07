@@ -72,8 +72,8 @@ export function NewConversationDialog({ customers }: { customers: Customer[] }) 
           <DialogTitle>Log a conversation</DialogTitle>
           <DialogDescription>
             Record a call, email, or walk-in inquiry as a new conversation.
-            You&apos;ll reply as yourself — there&apos;s no AI handling
-            conversations yet.
+            Your AI employee gets the first attempt at replying — take over
+            any time from the conversation view.
           </DialogDescription>
         </DialogHeader>
 

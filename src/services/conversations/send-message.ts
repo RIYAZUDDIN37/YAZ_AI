@@ -4,8 +4,13 @@ import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import type { SendMessageInput } from "@/lib/validation/conversations";
 
-/** A staff reply. Re-checks the conversation belongs to this business —
- * a conversationId is just an opaque string from the client otherwise. */
+/**
+ * A staff reply — replying as yourself is an implicit takeover, so this
+ * always moves the conversation to HUMAN_HANDLING regardless of its
+ * current status (including AI_HANDLING or HUMAN_NEEDED). Re-checks the
+ * conversation belongs to this business — a conversationId is just an
+ * opaque string from the client otherwise.
+ */
 export async function sendMessage(
   businessId: string,
   actorUserId: string,
@@ -36,6 +41,7 @@ export async function sendMessage(
       where: { id: conversation.id },
       data: {
         lastMessageAt: new Date(),
+        status: "HUMAN_HANDLING",
         // Replying implicitly claims the conversation if unassigned.
         assignedToUserId: conversation.assignedToUserId ?? actorUserId,
       },
