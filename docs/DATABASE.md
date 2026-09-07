@@ -10,6 +10,13 @@ truth for field-level detail.
 User ──< OrganizationMember >── Organization ──< Business >──< AIAgent
                                       │                │
                                       └──< AuditLog >───┘
+
+Business ──< ProductCategory ──< Product ──< ProductVariant
+         ──< ServiceCategory ──< Service
+         ──< InventoryItem (one per Product, or per ProductVariant)
+         ──< CustomerTag
+         ──< Customer ──< CustomerNote
+                       ──< Lead ──< LeadActivity
 ```
 
 - **User** — one row per human. `passwordHash` (bcrypt, 12 rounds) backs
@@ -39,6 +46,37 @@ User ──< OrganizationMember >── Organization ──< Business >──< A
   /`ToolExecution` events, which is what powers the "AI Activity" feed
   (spec section 18) — the UI never fabricates activity entries
   independent of what's actually in this table.
+- **Product / ProductCategory / ProductVariant / InventoryItem** — covers
+  Furniture, Electronics, and Restaurant-menu-as-products (spec section
+  22). `ProductVariant` is optional per product — a product with no
+  meaningful variation (a single-SKU armchair) skips it entirely and gets
+  one `InventoryItem` with `variantId: null`; a product with real
+  variation (a table in 3 finishes) gets one `InventoryItem` per variant
+  instead. `metadata: Json?` on `Product` holds industry-specific
+  attributes (material/dimensions for furniture, specs/warranty for
+  electronics) that don't earn dedicated columns yet — read by the
+  `searchProducts`/`getProductDetails` tools once Phase 8 exists.
+- **Service / ServiceCategory** — covers Salon and Dental. Structurally
+  parallel to Product/ProductCategory rather than reusing the same table,
+  because a service's meaningful fields (`durationMinutes`) and a
+  product's (`images`) genuinely differ — a shared table would need
+  nullable columns for whichever type a row isn't.
+- **Customer / CustomerNote / CustomerTag** — the CRM (spec section 19).
+  `tags` is an implicit Prisma many-to-many (no join model needed yet —
+  add one later only if tagging itself needs metadata, e.g. `taggedAt`).
+- **Lead / LeadActivity** — spec section 20. `LeadActivity` is the
+  timeline the Leads UI reads; entries are plain CRM events (`created`,
+  `note`, `status_change`) today. Once Phase 7+ exists, real AI
+  qualification signals become their own `LeadActivity` rows written
+  from actual agent execution — never seeded or fabricated ahead of that
+  (see `prisma/seed.ts`'s doc comment).
+
+Seed data for all of the above lives in
+[`prisma/seed.ts`](../prisma/seed.ts) — one realistic business (Urban
+Living, furniture) with 11 products across 4 categories (some with
+color/finish variants and real inventory counts), 5 customers, and 5
+leads spread across every `LeadStatus`. Idempotent — safe to re-run via
+`npm run db:seed`.
 
 ## Why cascade behavior is set the way it is
 
@@ -48,6 +86,13 @@ User ──< OrganizationMember >── Organization ──< Business >──< A
 - `AIAgent` → `Cascade` from `Business` — same reasoning.
 - `AuditLog`'s foreign keys → `onDelete: SetNull` — an audit trail should
   outlive the thing it describes being deleted, not disappear with it.
+- Catalogue/CRM children (`Product`, `Service`, `Customer`, `Lead`, ...) →
+  `Cascade` from `Business` — same "no independent existence" reasoning.
+  Within that: `Product` → category `SetNull` (deleting a category
+  shouldn't delete its products, just uncategorize them); `Lead` →
+  customer `SetNull` (a lead can outlive the customer record it started
+  from); `InventoryItem`/`ProductVariant` → `Cascade` from `Product`
+  (stock and variants are meaningless without the product they belong to).
 
 ## Tenant isolation, structurally
 
@@ -59,9 +104,6 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 ## What's coming (by phase, not yet in the schema)
 
-- **Phase 3 (full domain model)**: `Product`, `ProductVariant`,
-  `ProductCategory`, `InventoryItem`, `Service`, `ServiceCategory`,
-  `Customer`, `CustomerNote`, `CustomerTag`, `Lead`, `LeadActivity`.
 - **Phase 6 (conversations)**: `Conversation`, `ConversationParticipant`,
   `Message`, `MessageAttachment`.
 - **Phase 7–9 (agent + knowledge)**: `AgentConfiguration`,

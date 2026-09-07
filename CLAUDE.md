@@ -11,10 +11,22 @@ escalate to a human when a decision is outside what they're allowed to
 make. Full product vision: [`docs/PRODUCT.md`](docs/PRODUCT.md).
 
 This is being built in the 20 phases defined in the original spec,
-validating (typecheck → lint → build) before moving on from each. This
-file's **Implementation status** section below is the authoritative
-record of where that stands — trust it over any assumption from the repo
-structure alone.
+validating (typecheck → lint → build, and where a database is involved,
+an actual live-verified run — not just typechecked) before moving on
+from each. This file's **Implementation status** section below is the
+authoritative record of where that stands — trust it over any assumption
+from the repo structure alone.
+
+**Build order decision**: rather than building all five industries and
+every phase's UI breadth-first, we're going **core-first** — one
+industry (Urban Living, furniture) built genuinely deep, including a
+real working AI orchestration engine with actual tool calls, before
+widening to the other four industries and the remaining UI surface
+(automations, payments, analytics). A narrow, real, working core beats
+broad scaffolding for a portfolio piece. Concretely this means Phase 6
+(conversations) and Phase 7–8 (AI orchestration + tools) come before the
+full Phase 4–5 CRUD UI breadth and before Phase 15 (the other four
+industries' configuration).
 
 ## Architecture at a glance
 
@@ -108,6 +120,26 @@ matching the example file's defaults.
   (design-only — nothing in it is implemented yet), `docs/SECURITY.md`,
   `docs/PRODUCT.md`.
 
+### Done (Phase 3)
+
+- Prisma schema extended: `ProductCategory`, `Product`, `ProductVariant`,
+  `InventoryItem`, `ServiceCategory`, `Service`, `Customer`,
+  `CustomerNote`, `CustomerTag`, `Lead`, `LeadActivity`. Still on
+  `db:push` (no migration history yet) — switching to `db:migrate` once
+  the schema settles down more; see `docs/DATABASE.md`.
+- `prisma/seed.ts`: idempotent (safe to re-run) seed for Urban Living —
+  11 products across 4 categories (some with color/finish variants +
+  real per-SKU inventory), 5 customers, 5 leads spread across every
+  `LeadStatus`. Also creates the demo owner account
+  (`owner@urbanliving.test` / `UrbanLiving123!`) so evaluators can sign
+  in directly instead of onboarding from scratch. Deliberately does
+  **not** seed any AI-activity-shaped data (no `LeadActivity` rows
+  pretending to be AI qualification signals) — that only gets seeded, if
+  ever, once Phase 7+'s orchestration engine can actually produce it for
+  real, per the project's own "never fabricate AI activity" rule.
+- Dashboard Overview now shows real counts (Leads, Products, Customers)
+  queried live — no more hardcoded zeros for the data that now exists.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -164,20 +196,26 @@ elsewhere.
   because those pages don't exist yet — adding the links before the
   pages would be dead navigation, which the spec explicitly forbids.
 
-## Next steps (in phase order)
+## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 3** — full domain schema: Product/Service catalogue,
-   Customer/Lead, migrations (`db:migrate` instead of `db:push`), and
-   real seed data for Urban Living (furniture) + the other four
-   industries (`docs/PRODUCT.md`).
-2. **Phase 4–5** — owner workspace shell (real nav, added page by page
-   as each becomes real) + customers/leads/appointments/products CRUD.
-3. **Phase 6** — conversation system (Conversation/Message persistence,
-   Intercom-style inbox UI).
-4. **Phase 7–8** — `AIProvider`/`AIChatService`/`AgentOrchestrator`/
+1. **Phase 6** — conversation system (Conversation/Message persistence,
+   Intercom-style inbox UI) for Urban Living only, scoped to what the
+   next step needs to actually demo.
+2. **Phase 7–8** — `AIProvider`/`AIChatService`/`AgentOrchestrator`/
    `ToolRegistry` per `docs/AI-ARCHITECTURE.md`, starting with the mock
-   adapter; first real tool calls.
-5. **Phase 9–10** — knowledge/RAG pipeline; Train/Test AI employee UI
+   adapter; first real tool calls (`searchProducts`, `checkInventory`,
+   `createLead` now have real tables to query/write against, from
+   Phase 3).
+3. **Phase 9–10** — knowledge/RAG pipeline; Train/Test AI employee UI
    (test simulator must call the same orchestrator as real conversations).
-6. Continue per the phase list in the original spec; update this file
+4. **Phase 4–5** — full owner workspace nav + customers/leads/
+   appointments/products CRUD UI (the schema and dashboard stat counts
+   already exist from Phase 3; this is the dedicated list/detail/edit
+   pages).
+5. **Phase 15** — extend to the other four industries (Restaurant,
+   Salon, Dental, Electronics): seed data + any industry-specific tool
+   behavior (e.g. Dental's never-diagnose guardrail).
+6. Then automations (13), commerce — quotations/orders/payments (14),
+   the customer-facing widget (16), analytics (17), and hardening/
+   testing/polish (18–20), per the original phase list. Update this file
    after each phase, not just at the end.

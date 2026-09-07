@@ -25,12 +25,15 @@ cp .env.example .env          # defaults already match docker-compose.yml
 docker compose up -d          # Postgres on :5432, Redis on :6379
 npm install
 npm run db:push               # create tables from prisma/schema.prisma
+npm run db:seed               # optional: seed a realistic demo business
 npm run dev                   # http://localhost:3000
 ```
 
-Then: **Build your AI employee** on the landing page → create an account
-→ complete onboarding (pick an industry, name your AI employee) → land in
-the dashboard.
+Then either **Build your AI employee** on the landing page → create an
+account → complete onboarding (pick an industry, name your AI employee),
+or, if you ran `db:seed`, sign in directly with
+`owner@urbanliving.test` / `UrbanLiving123!` to see a workspace already
+populated with products, customers, and leads.
 
 ## Scripts
 

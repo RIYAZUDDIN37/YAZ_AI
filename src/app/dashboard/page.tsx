@@ -13,10 +13,15 @@ export default async function DashboardOverviewPage() {
   const business = membership.organization.businesses[0];
   if (!business) redirect("/onboarding");
 
-  const agent = await db.aIAgent.findFirst({
-    where: { businessId: business.id },
-    orderBy: { createdAt: "asc" },
-  });
+  const [agent, leadCount, productCount, customerCount] = await Promise.all([
+    db.aIAgent.findFirst({
+      where: { businessId: business.id },
+      orderBy: { createdAt: "asc" },
+    }),
+    db.lead.count({ where: { businessId: business.id } }),
+    db.product.count({ where: { businessId: business.id } }),
+    db.customer.count({ where: { businessId: business.id } }),
+  ]);
   const industryConfig = getIndustryConfig(business.industry);
 
   return (
@@ -52,7 +57,7 @@ export default async function DashboardOverviewPage() {
           <CardContent>
             <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
               <Stat label="Conversations" value="0" />
-              <Stat label="Leads" value="0" />
+              <Stat label="Leads" value={String(leadCount)} />
               <Stat
                 label={`${industryConfig.appointmentLabel}s`}
                 value="0"
@@ -63,14 +68,27 @@ export default async function DashboardOverviewPage() {
         </Card>
       ) : null}
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Business at a glance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
+            <Stat label={industryConfig.catalogueLabel} value={String(productCount)} />
+            <Stat label="Customers" value={String(customerCount)} />
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-dashed">
         <CardContent className="py-10 text-center">
-          <p className="font-medium">This is Phase 1 of YAZ AI.</p>
+          <p className="font-medium">Foundation + catalogue/CRM schema are real.</p>
           <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground text-pretty">
-            Authentication, your workspace, and your first AI employee are
-            real and persisted. Inbox, customers, knowledge upload, and the
-            agent orchestration engine are built in the phases that follow —
-            they&apos;ll appear here as they land, not as placeholders.
+            Auth, your workspace, your AI employee, and the product/customer/
+            lead data above are persisted. Conversations, appointments,
+            knowledge upload, and the agent orchestration engine are built in
+            the phases that follow — they&apos;ll appear here as they land,
+            not as placeholders.
           </p>
         </CardContent>
       </Card>

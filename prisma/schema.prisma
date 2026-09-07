@@ -47,6 +47,26 @@ enum AgentStatus {
   OFFLINE
 }
 
+/// Shared by Product and Service — a plain draft/active/archived
+/// lifecycle is enough for both catalogue types; no reason to duplicate it.
+enum CatalogueStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// spec section 20. The AI creates/updates leads through the createLead /
+/// updateLead tools (Phase 8) — a human can also do it from the CRM.
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  CONTACTED
+  APPOINTMENT
+  PROPOSAL
+  WON
+  LOST
+}
+
 // ---------------------------------------------------------------------------
 // Identity & tenancy
 // ---------------------------------------------------------------------------
@@ -62,6 +82,7 @@ model User {
   updatedAt      DateTime             @updatedAt
   memberships    OrganizationMember[]
   auditLogEntries AuditLog[]
+  customerNotes   CustomerNote[]
 
   @@map("users")
 }
@@ -114,6 +135,14 @@ model Business {
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   agents         AIAgent[]
   auditLogs      AuditLog[]
+  productCategories ProductCategory[]
+  products          Product[]
+  inventoryItems    InventoryItem[]
+  serviceCategories ServiceCategory[]
+  services          Service[]
+  customers         Customer[]
+  customerTags      CustomerTag[]
+  leads             Lead[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -136,6 +165,218 @@ model AIAgent {
 
   @@index([businessId])
   @@map("ai_agents")
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue — Product covers Furniture/Electronics/Restaurant-menu items;
+// Service covers Salon/Dental. A business can have either or both — the
+// industry config (src/config/industries) only picks which one the UI
+// labels as the primary "catalogue", it doesn't gate the schema.
+// ---------------------------------------------------------------------------
+
+model ProductCategory {
+  id         String    @id @default(cuid())
+  businessId String
+  name       String
+  slug       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products   Product[]
+
+  @@unique([businessId, slug])
+  @@index([businessId])
+  @@map("product_categories")
+}
+
+model Product {
+  id          String            @id @default(cuid())
+  businessId  String
+  categoryId  String?
+  name        String
+  slug        String
+  description String?
+  price       Decimal           @db.Decimal(10, 2)
+  status      CatalogueStatus   @default(ACTIVE)
+  images      String[]          @default([])
+  /// Industry-specific attributes that don't earn their own column yet —
+  /// e.g. { material, dimensions, color } for furniture, { specs,
+  /// warrantyMonths } for electronics. Read by the AI's searchProducts /
+  /// getProductDetails tools (Phase 8).
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  business    Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category    ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  variants    ProductVariant[]
+  inventoryItems InventoryItem[]
+
+  @@unique([businessId, slug])
+  @@index([businessId])
+  @@index([categoryId])
+  @@map("products")
+}
+
+/// Optional. Not every product needs variants (a $200 armchair might just
+/// be one SKU); when it does (a table in 3 finishes), each variant gets
+/// its own InventoryItem so stock is tracked at the level that's actually
+/// sold.
+model ProductVariant {
+  id            String         @id @default(cuid())
+  productId     String
+  name          String
+  sku           String         @unique
+  priceOverride Decimal?       @db.Decimal(10, 2)
+  attributes    Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem?
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+/// One row per sellable unit — either a Product with no variants, or one
+/// row per ProductVariant. checkInventory (Phase 8) reads this, never a
+/// raw count on Product itself, so stock is always sourced from one place.
+model InventoryItem {
+  id                String          @id @default(cuid())
+  businessId        String
+  productId         String
+  variantId         String?         @unique
+  sku               String
+  quantityOnHand    Int             @default(0)
+  quantityReserved  Int             @default(0)
+  updatedAt         DateTime        @updatedAt
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant           ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([productId])
+  @@map("inventory_items")
+}
+
+model ServiceCategory {
+  id         String    @id @default(cuid())
+  businessId String
+  name       String
+  slug       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  services   Service[]
+
+  @@unique([businessId, slug])
+  @@index([businessId])
+  @@map("service_categories")
+}
+
+model Service {
+  id              String           @id @default(cuid())
+  businessId      String
+  categoryId      String?
+  name            String
+  slug            String
+  description     String?
+  durationMinutes Int
+  price           Decimal          @db.Decimal(10, 2)
+  status          CatalogueStatus  @default(ACTIVE)
+  metadata        Json?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category        ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, slug])
+  @@index([businessId])
+  @@index([categoryId])
+  @@map("services")
+}
+
+// ---------------------------------------------------------------------------
+// CRM — Customer, tags, notes, and Lead/LeadActivity (spec sections 19-20).
+// ---------------------------------------------------------------------------
+
+model CustomerTag {
+  id         String     @id @default(cuid())
+  businessId String
+  name       String
+  color      String?
+  createdAt  DateTime   @default(now())
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customers  Customer[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("customer_tags")
+}
+
+model Customer {
+  id         String         @id @default(cuid())
+  businessId String
+  name       String
+  email      String?
+  phone      String?
+  source     String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  tags       CustomerTag[]
+  notes      CustomerNote[]
+  leads      Lead[]
+
+  @@index([businessId])
+  @@index([email])
+  @@map("customers")
+}
+
+model CustomerNote {
+  id           String    @id @default(cuid())
+  customerId   String
+  authorUserId String?
+  body         String
+  createdAt    DateTime  @default(now())
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorUser   User?     @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@map("customer_notes")
+}
+
+model Lead {
+  id         String         @id @default(cuid())
+  businessId String
+  customerId String?
+  status     LeadStatus     @default(NEW)
+  source     String?
+  intent     String?
+  value      Decimal?       @db.Decimal(10, 2)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer   Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  activities LeadActivity[]
+
+  @@index([businessId])
+  @@index([customerId])
+  @@map("leads")
+}
+
+/// Timeline entries for a lead — status changes, notes, and (Phase 8) AI
+/// qualification signals. This is what the Leads UI's activity feed reads.
+model LeadActivity {
+  id        String   @id @default(cuid())
+  leadId    String
+  type      String
+  body      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("lead_activities")
 }
 
 // ---------------------------------------------------------------------------
