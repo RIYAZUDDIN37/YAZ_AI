@@ -26,9 +26,15 @@ export async function requireMembership() {
   });
 
   if (!membership) {
-    // Should not happen — registration always creates a membership — but
-    // fail safe rather than crash if it ever does.
-    redirect("/onboarding");
+    // Registration always creates a membership transactionally alongside
+    // the user, so a signed-in user with none means the session cookie is
+    // orphaned — it references a userId that no longer exists in this
+    // database (e.g. the dev DB was reset while a browser still held an
+    // old session). Redirecting to /onboarding here would loop forever
+    // when this is called *from* the onboarding layout, since it would
+    // immediately fail the same check again. Send them to sign back in
+    // instead — a stale cookie is just replaced on next successful login.
+    redirect("/sign-in");
   }
 
   return { session, membership };

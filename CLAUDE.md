@@ -112,7 +112,40 @@ matching the example file's defaults.
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
 
-<!-- DB-VERIFICATION-STATUS: updated after live Postgres verification -->
+**Live-verified against real Postgres** (2026-09-07): started
+`docker compose up -d`, ran `npm run db:push`, then drove sign-up →
+onboarding (Furniture, "Urban Living") → dashboard through an actual
+browser session, and independently confirmed the rows via `psql` —
+`users`, `organizations`, `businesses` (industry `FURNITURE`,
+`onboardedAt` set), `ai_agents` (Maya, ONLINE), and both `audit_logs`
+rows (`user.registered` → `business.onboarded`) with correct foreign
+keys. Not merely typechecked — actually run.
+
+`npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
+below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
+`styleText`). Everything else (`dev`, `build`, `lint`, `db:push`) works
+fine on 20.8.0 — only the test runner needs the Node upgrade.
+
+**Project location**: moved from a OneDrive-synced folder to
+`D:\Projects\YAZ AI` — OneDrive's background sync intermittently
+corrupted the `.next` build cache mid-dev-session (random `ENOENT`/
+`EINVAL` errors on files webpack was actively writing), which is a
+structural conflict with any cloud-synced folder, not a one-off bug.
+Don't develop this project from inside a Dropbox/OneDrive/Google Drive
+folder.
+
+**Bug found and fixed during this move**: resetting the dev database
+while a browser held an old session cookie caused an infinite redirect
+loop on `/onboarding` — `requireMembership()`
+(`src/server/authorization/require-session.ts`) assumed "signed in but
+no membership" could never happen and redirected back to `/onboarding`
+itself. Fixed to redirect to `/sign-in` instead, since a membership-less
+session is actually an orphaned/stale one (references a `userId` that no
+longer exists), not a "hasn't onboarded yet" user — every real user gets
+a membership transactionally at registration. This is a real
+defensive-coding gap, not an artifact of the environment move — worth
+remembering if a similar "assumed can't happen" fallback shows up
+elsewhere.
 
 ### Known limitations
 
