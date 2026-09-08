@@ -19,6 +19,7 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
                        ──< Lead ──< LeadActivity
                        ──< Conversation ──< Message
                                         ──< AgentExecution ──< AgentAction
+                       ──< Appointment
          ──< KnowledgeDocument ──< KnowledgeChunk
 
 AIAgent ──< AgentExecution
@@ -91,6 +92,15 @@ AIAgent ──< AgentExecution
   qualification signals become their own `LeadActivity` rows written
   from actual agent execution — never seeded or fabricated ahead of that
   (see `prisma/seed.ts`'s doc comment).
+- **Appointment** — spec section 12 / Phase 14 (partial — quotations,
+  orders, and payments are still design-only). Labelled per-industry by
+  `IndustryConfig.appointmentLabel` ("Showroom Visit" for Furniture);
+  the schema itself is shared across verticals. `customerId` and
+  `leadId` are both optional (a walk-in with no prior lead can still get
+  an appointment), and `source` mirrors `Lead.source`'s "AI
+  conversation" vs. staff-booked convention — the AI's `createAppointment`
+  tool writes here through the same permissioned path as everything
+  else it does.
 - **Conversation / Message** — spec sections 6, 11, 17. `status` is one
   of the four states spec section 11 names (`AI_HANDLING` /
   `HUMAN_NEEDED` / `HUMAN_HANDLING` / `RESOLVED`) — **all four are real
@@ -155,6 +165,10 @@ to re-run via `npm run db:seed`.
   triggerMessageId` → `Cascade` (the execution IS a response to that
   message — no message, no execution); `replyMessageId` → `SetNull`
   (the execution record should outlive its reply message being deleted).
+- `Appointment` → `Cascade` from `Business` (same reasoning as other
+  catalogue/CRM children); `customerId`/`leadId`/`assignedToUserId` all
+  → `SetNull` — an appointment record should outlive any of those being
+  deleted, same as `Lead.customerId`.
 
 ## Tenant isolation, structurally
 
@@ -168,9 +182,10 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 - **Phase 13 (automations)**: `Automation`, `AutomationTrigger`,
   `AutomationAction`, `WorkflowExecution`.
-- **Phase 14 (commerce)**: `Appointment`, `AppointmentType`,
-  `AvailabilitySlot`, `Quotation`, `QuotationItem`, `Order`, `OrderItem`,
-  `Payment`, `PaymentLink`, `PaymentTransaction`.
+- **Phase 14 (rest of commerce)**: `Appointment` itself now exists (see
+  above); still missing: `AppointmentType`, `AvailabilitySlot` (today's
+  booking has no conflict/slot checking), `Quotation`, `QuotationItem`,
+  `Order`, `OrderItem`, `Payment`, `PaymentLink`, `PaymentTransaction`.
 - Also queued: `Notification`, `Integration`, `Subscription`.
 
 Each addition gets the same treatment as what's here: a tenant foreign

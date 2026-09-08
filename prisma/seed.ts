@@ -31,6 +31,7 @@ async function main() {
   await seedLeads(business.id, customers);
   await seedConversations(business.id, ownerUserId, customers);
   await seedAgentTraining(business.id, agentId);
+  await seedAppointments(business.id, ownerUserId, customers);
 
   console.log("\nSeed complete.");
   console.log(`  Business: ${business.name} (${business.slug})`);
@@ -548,6 +549,37 @@ async function seedConversations(
       data: { lastMessageAt: new Date() },
     });
   }
+}
+
+/**
+ * Phase 14 (partial): one real Appointment, linked to the Vikram Joshi
+ * lead whose LeadActivity already narrates "Booked a showroom visit for
+ * this Saturday" (seedLeads) — this row is what actually makes that
+ * narration true instead of just a plausible-sounding string.
+ */
+async function seedAppointments(
+  businessId: string,
+  ownerUserId: string,
+  customers: Awaited<ReturnType<typeof seedCustomers>>,
+) {
+  const vikram = customers[3];
+  const existing = await db.appointment.findFirst({ where: { businessId, customerId: vikram.id } });
+  if (existing) return;
+
+  const nextSaturday = new Date();
+  nextSaturday.setDate(nextSaturday.getDate() + ((6 - nextSaturday.getDay() + 7) % 7 || 7));
+  nextSaturday.setHours(15, 0, 0, 0);
+
+  await db.appointment.create({
+    data: {
+      businessId,
+      customerId: vikram.id,
+      assignedToUserId: ownerUserId,
+      purpose: "Wants to see dining tables in person before deciding",
+      scheduledAt: nextSaturday,
+      status: "CONFIRMED",
+    },
+  });
 }
 
 function randomInt(min: number, max: number) {

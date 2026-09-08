@@ -107,6 +107,7 @@ model User {
   customerNotes   CustomerNote[]
   assignedConversations Conversation[] @relation("AssignedConversations")
   sentMessages          Message[]      @relation("SentMessages")
+  assignedAppointments  Appointment[]  @relation("AssignedAppointments")
 
   @@map("users")
 }
@@ -172,6 +173,7 @@ model Business {
   agentRules        AgentRule[]
   agentGoals        AgentGoal[]
   knowledgeDocuments KnowledgeDocument[]
+  appointments       Appointment[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -457,6 +459,7 @@ model Customer {
   notes      CustomerNote[]
   leads      Lead[]
   conversations Conversation[]
+  appointments  Appointment[]
 
   @@index([businessId])
   @@index([email])
@@ -489,10 +492,49 @@ model Lead {
   business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer   Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   activities LeadActivity[]
+  appointments Appointment[]
 
   @@index([businessId])
   @@index([customerId])
   @@map("leads")
+}
+
+/// spec section 12 / Phase 14 (partial — the rest of commerce: quotations,
+/// orders, payments, still design-only). Labelled per-industry by
+/// IndustryConfig.appointmentLabel ("Showroom Visit" for Furniture,
+/// "Reservation" for Restaurant, etc.) — the underlying schema is shared.
+/// The AI's createAppointment tool (Phase 8 extension) writes here too,
+/// same "source" convention as Lead — "AI conversation" vs. staff-booked.
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  businessId       String
+  customerId       String?
+  leadId           String?
+  assignedToUserId String?
+  purpose          String
+  scheduledAt      DateTime
+  durationMinutes  Int               @default(30)
+  status           AppointmentStatus @default(SCHEDULED)
+  source           String?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead             Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo       User?             @relation("AssignedAppointments", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, scheduledAt])
+  @@index([customerId])
+  @@map("appointments")
 }
 
 /// Timeline entries for a lead — status changes, notes, and (Phase 8) AI

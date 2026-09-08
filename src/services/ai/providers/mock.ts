@@ -30,6 +30,16 @@ const ESCALATION_KEYWORDS = [
   "50% off",
 ];
 
+const BOOKING_KEYWORDS = [
+  "showroom visit",
+  "book a visit",
+  "book an appointment",
+  "schedule a visit",
+  "set up a visit",
+  "come by the showroom",
+  "visit the showroom",
+];
+
 const PRODUCT_KEYWORDS = [
   "table",
   "sofa",
@@ -82,6 +92,45 @@ export const mockProvider: AIProvider = {
         toolCalls,
         escalated: true,
         stopReason: "escalated",
+      };
+    }
+
+    if (BOOKING_KEYWORDS.some((keyword) => text.includes(keyword))) {
+      // Honest simplification: the mock provider can't parse "this
+      // Saturday" into a real date the way a real LLM would — it always
+      // books the next day at 11:00 local time. A real appointment row
+      // still gets written; only the "when" is a fixed default.
+      const scheduledAt = new Date();
+      scheduledAt.setDate(scheduledAt.getDate() + 1);
+      scheduledAt.setHours(11, 0, 0, 0);
+
+      const bookingRecord = await executeTool(
+        "createAppointment",
+        { purpose: originalText, scheduledAt: scheduledAt.toISOString() },
+        toolContext,
+      );
+      toolCalls.push(bookingRecord);
+
+      if (bookingRecord.status === "SUCCESS" && !("error" in (bookingRecord.output as object))) {
+        const dateLabel = scheduledAt.toLocaleString("en-IN", {
+          weekday: "long",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+        return {
+          replyText: `You're booked for ${dateLabel}. We'll see you then!`,
+          toolCalls,
+          escalated: false,
+          stopReason: "end_turn",
+        };
+      }
+
+      return {
+        replyText:
+          "I'd love to set that up, but I don't have your contact details linked to this conversation yet — a team member will follow up to confirm.",
+        toolCalls,
+        escalated: false,
+        stopReason: "end_turn",
       };
     }
 

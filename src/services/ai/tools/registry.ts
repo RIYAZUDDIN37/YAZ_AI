@@ -2,6 +2,7 @@ import type { AgentTool, ToolCallRecord, ToolContext } from "@/services/ai/types
 import { searchProductsTool } from "./search-products";
 import { checkInventoryTool } from "./check-inventory";
 import { createLeadTool } from "./create-lead";
+import { createAppointmentTool } from "./create-appointment";
 import { escalateToHumanTool } from "./escalate-to-human";
 
 /**
@@ -15,6 +16,7 @@ export const TOOL_REGISTRY: AgentTool[] = [
   searchProductsTool,
   checkInventoryTool,
   createLeadTool,
+  createAppointmentTool,
   escalateToHumanTool,
 ] as AgentTool[];
 

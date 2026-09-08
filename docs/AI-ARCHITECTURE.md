@@ -14,7 +14,7 @@ AIProvider          — src/services/ai/provider.ts. The only thing that
                        mock (default) and anthropic exist; openai does not
                        (deliberately deferred — see "What's not built" below).
 ToolRegistry         — src/services/ai/tools/registry.ts. The fixed set
-                       of actions the AI may take. 4 tools exist today.
+                       of actions the AI may take. 5 tools exist today.
 KnowledgeRetriever   — src/services/knowledge/retrieve.ts. Real, lexical
                        (keyword-overlap) retrieval over KnowledgeChunk
                        rows — see "Knowledge retrieval" below.
@@ -81,7 +81,7 @@ literal data source the Inbox's context panel *and* the Train AI
 Employee page's Test tab read for "AI activity" — nothing there is
 fabricated independent of a real execution.
 
-## Tools — 4 implemented, real, live-verified
+## Tools — 5 implemented, real, live-verified
 
 The AI never receives a database handle. It can only call functions in
 `ToolRegistry` (`src/services/ai/tools/`), each with a name/description
@@ -97,14 +97,23 @@ result, not an unhandled exception that kills the turn).
 | `searchProducts` | Query -> real `Product` rows (keyword + max price) | ✅ live |
 | `checkInventory` | Real `InventoryItem` stock, by product id or name | ✅ live |
 | `createLead` | Creates a real `Lead` linked to the conversation's customer | ✅ live |
+| `createAppointment` | Books a real `Appointment` (Phase 14, industry-labelled) linked to the conversation's customer | ✅ live |
 | `escalateToHuman` | Sets the conversation to `HUMAN_NEEDED` — this **is** the governance backbone (see below) | ✅ live |
+
+`createAppointment` needs a real date/time. The mock provider is honest
+about the limit this exposes: it can't parse "this Saturday" into a real
+date the way an LLM would, so it always books next-day at 11:00 local
+time when a booking keyword matches (`src/services/ai/providers/mock.ts`)
+— the appointment row itself is real, only the "when" is a fixed
+default. The Anthropic provider has no such limit; a real model resolves
+relative dates from the conversation itself.
 
 Not yet built: `getProductDetails`, `searchServices`, `getServiceDetails`,
 `checkAvailability`, `updateLead`, `getCustomer`, `updateCustomer`,
-`createAppointment`, `cancelAppointment`, `rescheduleAppointment`,
+`cancelAppointment`, `rescheduleAppointment`,
 `createQuotation`, `getQuotation`, `createOrder`, `getOrderStatus`,
 `generatePaymentLink`, `sendNotification`, `createFollowUp` — most of
-these need models that don't exist yet (Appointment, Quotation, Order —
+these need models that don't exist yet (Quotation, Order —
 Phase 14).
 
 ## Knowledge retrieval — real, lexical (Phase 9)

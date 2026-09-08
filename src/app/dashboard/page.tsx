@@ -14,7 +14,7 @@ export default async function DashboardOverviewPage() {
   const business = membership.organization.businesses[0];
   if (!business) redirect("/onboarding");
 
-  const [agent, conversationCount, leadCount, productCount, customerCount, escalationCount] =
+  const [agent, conversationCount, leadCount, productCount, customerCount, escalationCount, appointmentCount] =
     await Promise.all([
       db.aIAgent.findFirst({
         where: { businessId: business.id },
@@ -25,6 +25,7 @@ export default async function DashboardOverviewPage() {
       db.product.count({ where: { businessId: business.id } }),
       db.customer.count({ where: { businessId: business.id } }),
       db.agentExecution.count({ where: { businessId: business.id, status: "ESCALATED" } }),
+      db.appointment.count({ where: { businessId: business.id } }),
     ]);
   const industryConfig = getIndustryConfig(business.industry);
 
@@ -64,7 +65,8 @@ export default async function DashboardOverviewPage() {
               <Stat label="Leads" value={String(leadCount)} href="/dashboard/leads" />
               <Stat
                 label={`${industryConfig.appointmentLabel}s`}
-                value="0"
+                value={String(appointmentCount)}
+                href="/dashboard/appointments"
               />
               <Stat label="Escalations" value={String(escalationCount)} />
             </div>

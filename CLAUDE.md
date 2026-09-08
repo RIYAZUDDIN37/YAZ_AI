@@ -298,6 +298,38 @@ list/detail/edit pages, per the original "Next steps" note).
   unverifiable Services UI before a service-industry exists to test it
   against would violate the project's own "no fake states" rule.
 
+### Done (Phase 14, partial) — Appointments
+
+Just the `Appointment` model + booking, not the rest of commerce
+(quotations/orders/payments — still design-only).
+
+- `Appointment` model: optional `customerId`/`leadId` (a walk-in with no
+  prior lead can still get one booked), `source` mirroring `Lead.source`'s
+  "AI conversation" vs. staff-booked convention, `status` (`SCHEDULED` /
+  `CONFIRMED` / `COMPLETED` / `CANCELLED` / `NO_SHOW`).
+  See `docs/DATABASE.md`.
+- 5th AI tool: `createAppointment` (`src/services/ai/tools/`) — same
+  permissioned/logged/Zod-revalidated pattern as the other four, same
+  "no linked customer" honest failure as `createLead` when called from a
+  customerless conversation (e.g. the Test simulator). The mock provider
+  now genuinely calls it on booking-intent keywords ("book a showroom
+  visit", etc.) — honestly, it can't parse a real date like an LLM
+  would, so it always books next-day 11:00 local; the appointment row
+  is real, only the "when" is a fixed default. See
+  `docs/AI-ARCHITECTURE.md`.
+- `/dashboard/appointments` (`customers:manage`, same tier as Leads):
+  list with inline status actions (Confirm/Complete/No-show/Cancel) +
+  a booking dialog. No separate detail page — the list is the whole
+  surface, a deliberate scope trim rather than a placeholder page with
+  little on it. Labelled per-industry (`industryConfig.appointmentLabel`
+  — "Showroom Visit" for Urban Living).
+- Nav gained the appointments link; Overview's previously-hardcoded "0"
+  stat for `${appointmentLabel}s` is now a real, linked count.
+- `prisma/seed.ts`: one real `Appointment` for Vikram Joshi, linked to
+  the lead whose `LeadActivity` already narrated "Booked a showroom
+  visit for this Saturday" — that row is what makes the narration true
+  rather than just a plausible-sounding string.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -394,6 +426,25 @@ seeded owner, against a manually-run production build:
   the server action call — not a 3-generic `useForm`, which doesn't
   compose with the shared `TextField` component's own generic.
 
+**Phase 14 (partial) live-verified** (2026-09-08), real browser session
+as the seeded owner:
+- Appointments list shows the seeded Vikram Joshi appointment correctly
+  (industry-labelled "Showroom Visits" heading, real `CONFIRMED` status,
+  correct action buttons for that status).
+- Test simulator: sent "Can I book a showroom visit to see the dining
+  tables?" — Maya (mock provider) called `createAppointment` for real
+  (status `SUCCESS`), and since the test conversation has no linked
+  customer, honestly replied "I don't have your contact details linked
+  to this conversation yet" instead of fabricating a booking — confirmed
+  via `psql`: zero new `Appointment` rows with `source: "AI conversation"`,
+  same honest-failure pattern as `createLead`.
+- Booked a real appointment through the UI dialog (customer picker,
+  purpose, native `datetime-local` input) — confirmed via `psql`: real
+  `Appointment` row, correct `SCHEDULED` status. Clicked Confirm — status
+  flipped to `CONFIRMED` (confirmed via `psql`).
+- Overview's `${appointmentLabel}s` stat correctly showed 2 (real count,
+  no longer the hardcoded 0), linked to the real page.
+
 `npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
 below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
 `styleText`). Everything else (`dev`, `build`, `lint`, `db:push`) works
@@ -446,31 +497,34 @@ elsewhere.
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- **No `Appointment` model/UI** — Phase 14. The original phase
-  description names "appointments" alongside customers/leads/products,
-  but there's no schema for it yet; see the Phase 4-5 scope note above.
 - **No Services UI** — `Service`/`ServiceCategory` have schema and AI-tool
   support parity with Product, but no dedicated CRUD pages yet, since
   Urban Living (Furniture) is the only seeded/live business and its
   catalogue is Products. Lands with Phase 15's other four industries.
 - **No category-management UI** — `createProductCategory` exists as a
   service; product create/edit forms only pick among existing categories.
+- **No quotations/orders/payments** — the rest of Phase 14's commerce
+  scope; only `Appointment` exists so far.
+- **Appointment booking has no conflict/slot checking** — no
+  `AvailabilitySlot` model yet; double-booking the same time is allowed.
+- **The mock AI provider can't parse relative dates** — when it books an
+  appointment, it always uses next-day 11:00 local as a fixed default,
+  not whatever date the customer actually said ("this Saturday", etc.).
+  The row it creates is real; only the "when" is a simplification. A
+  real LLM (the Anthropic provider) doesn't have this limit.
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 14 (partial)** — an `Appointment` model + booking UI, since
-   Phase 4-5 landed everything else scoped for the owner workspace
-   (Customers/Leads/Products) but appointments needed schema that didn't
-   exist yet.
-2. **Phase 15** — extend to the other four industries (Restaurant,
+1. **Phase 15** — extend to the other four industries (Restaurant,
    Salon, Dental, Electronics): seed data, a Services CRUD UI (parallel
    to Products), and any industry-specific tool behavior (e.g. Dental's
    never-diagnose guardrail — approximable today with an `AgentRule`,
    still without dedicated validation-stage enforcement).
-3. Then automations (13), the rest of commerce — quotations/orders/
-   payments (14), the customer-facing widget (16), analytics (17), and
-   hardening/testing/polish (18–20), per the original phase list. Update
-   this file after each phase, not just at the end.
+2. Then automations (13), the rest of commerce — quotations/orders/
+   payments (14, `AvailabilitySlot` included), the customer-facing
+   widget (16), analytics (17), and hardening/testing/polish (18–20),
+   per the original phase list. Update this file after each phase, not
+   just at the end.
 
 **Also worth doing soon, not tied to a specific phase**: get a real
 `ANTHROPIC_API_KEY` into `.env` and live-verify the `anthropic` provider
