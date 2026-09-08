@@ -257,6 +257,47 @@ Full design/status writeup: `docs/AI-ARCHITECTURE.md` — summary here:
   Delivery Policy" `KnowledgeDocument` (chunked the same way the UI
   does it) for Urban Living.
 
+### Done (Phase 4–5) — owner workspace: Customers, Leads, Products
+
+Full CRUD UI over the Phase 3 schema (Customer/Lead/Product were data
+and dashboard stat counts only until now — this is the dedicated
+list/detail/edit pages, per the original "Next steps" note).
+
+- Two new permissions: `customers:manage` (Customers + Leads — granted
+  down to STAFF, matching spec section 6's "limited customer access")
+  and `catalogue:manage` (Products/pricing/inventory — MANAGER and up
+  only, same tier as `business:manage`).
+- **Customers** (`/dashboard/customers`): list + detail page with an
+  editable profile form, linked leads, linked conversations (cross-
+  referencing Inbox), and notes (`CustomerNote`, author-attributed).
+- **Leads** (`/dashboard/leads`): list with status-filter tabs + detail
+  page with a status changer (writes a real `LeadActivity` "status
+  change" row, the same table the AI's `createLead` tool writes to) and
+  a note timeline. Human-created leads are visually distinguished from
+  AI-created ones (an "AI" badge, sourced from `Lead.source === "AI
+  conversation"`) rather than looking identical.
+- **Products** (`/dashboard/products`, labelled by
+  `industryConfig.catalogueLabel` — "Products" for Urban Living): list
+  + detail page with an editable form and per-variant inventory, with
+  inline stock adjustment (`InventoryItem.quantityOnHand` — the exact
+  same table `checkInventory`, the AI tool, reads). Category creation
+  exists as a service (`src/services/products/create-category.ts`) but
+  has no dedicated UI yet — the create/edit product forms only pick
+  among existing categories.
+- Nav gained Customers/Leads/(catalogue label), each gated by its
+  permission; Overview's stat tiles now link to their real pages;
+  fixed two stale copy spots that predated Phase 7-8/Phase 4-5
+  (`dashboard/page.tsx`'s "the AI isn't real yet" card, the Inbox empty
+  state's "customer management lands in an upcoming phase" line).
+- **Scope note**: the original phase description also names
+  "appointments" — there's no `Appointment` model yet (that's Phase 14
+  per `docs/DATABASE.md`'s "What's coming"), so it's not part of this
+  phase's UI. Services (the Restaurant/Salon/Dental catalogue type) also
+  has no dedicated UI yet — only Products, since Urban Living
+  (Furniture) is the only seeded/live business today; building an
+  unverifiable Services UI before a service-industry exists to test it
+  against would violate the project's own "no fake states" rule.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -323,6 +364,36 @@ YAZ AI` (see gotcha #5 above for why manual, not `preview_start`):
 - Found and fixed nothing new this pass — the trickier bug was
   environmental (gotcha #5), not application code.
 
+**Phase 4-5 live-verified** (2026-09-08), real browser session as the
+seeded owner, against a manually-run production build:
+- Customers list and detail render correctly (all 5 seeded customers,
+  real tags, real lead counts); opened Priya Mehta's detail page and
+  confirmed her 3 real leads (2 AI-created, 1 human) and 1 conversation
+  cross-referenced correctly; added a profile note through the UI,
+  confirmed it persisted with correct author attribution ("Ananya Rao").
+- Leads list/filter tabs render correctly with real "AI" badges only on
+  AI-created leads; opened a lead detail page, changed its status via
+  the picker, confirmed a real `status_change` `LeadActivity` row was
+  written (both in the UI and via `psql`).
+- Products list renders all 11 seeded products with correct real stock
+  totals (summed across variants). Created a new product ("Verona
+  Accent Chair") end to end through the dialog — category select
+  resolved the label correctly, a real `Product` + `InventoryItem` row
+  were created with a correctly-generated slug/SKU. Adjusted its stock
+  inline (12 → 7) and confirmed the write via `psql` against the exact
+  same `InventoryItem` table `checkInventory` (the AI tool) reads.
+- No application bugs found this pass — the one real fix was a
+  TypeScript issue (documented in a doc comment in
+  `src/lib/validation/leads.ts`/`products.ts`): `useForm<T>`'s single
+  generic breaks when `T` itself comes from a schema using
+  `z.coerce.number()` or `.default()`, because the resolver's *input*
+  type (pre-coercion) and *output* type (post-coercion) diverge. Fixed
+  by giving each such form a client-facing schema variant where the
+  numeric field stays a plain string (matching what a DOM `<input>`
+  actually hands react-hook-form), converted to a number just before
+  the server action call — not a 3-generic `useForm`, which doesn't
+  compose with the shared `TextField` component's own generic.
+
 `npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
 below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
 `styleText`). Everything else (`dev`, `build`, `lint`, `db:push`) works
@@ -375,27 +446,31 @@ elsewhere.
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- Dashboard nav has three real items (Overview, Inbox, Train AI
-  Employee — the last gated to `business:manage` roles) — still no
-  Customers/Leads/Products links, because those dedicated pages don't
-  exist yet (Phase 4-5). Adding the links before the pages would be
-  dead navigation, which the spec explicitly forbids.
+- **No `Appointment` model/UI** — Phase 14. The original phase
+  description names "appointments" alongside customers/leads/products,
+  but there's no schema for it yet; see the Phase 4-5 scope note above.
+- **No Services UI** — `Service`/`ServiceCategory` have schema and AI-tool
+  support parity with Product, but no dedicated CRUD pages yet, since
+  Urban Living (Furniture) is the only seeded/live business and its
+  catalogue is Products. Lands with Phase 15's other four industries.
+- **No category-management UI** — `createProductCategory` exists as a
+  service; product create/edit forms only pick among existing categories.
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 4–5** — full owner workspace nav + customers/leads/
-   appointments/products CRUD UI (the schema and dashboard stat counts
-   already exist from Phase 3; this is the dedicated list/detail/edit
-   pages).
+1. **Phase 14 (partial)** — an `Appointment` model + booking UI, since
+   Phase 4-5 landed everything else scoped for the owner workspace
+   (Customers/Leads/Products) but appointments needed schema that didn't
+   exist yet.
 2. **Phase 15** — extend to the other four industries (Restaurant,
-   Salon, Dental, Electronics): seed data + any industry-specific tool
-   behavior (e.g. Dental's never-diagnose guardrail — approximable today
-   with an `AgentRule`, still without dedicated validation-stage
-   enforcement).
-3. Then automations (13), commerce — quotations/orders/payments (14),
-   the customer-facing widget (16), analytics (17), and hardening/
-   testing/polish (18–20), per the original phase list. Update this file
-   after each phase, not just at the end.
+   Salon, Dental, Electronics): seed data, a Services CRUD UI (parallel
+   to Products), and any industry-specific tool behavior (e.g. Dental's
+   never-diagnose guardrail — approximable today with an `AgentRule`,
+   still without dedicated validation-stage enforcement).
+3. Then automations (13), the rest of commerce — quotations/orders/
+   payments (14), the customer-facing widget (16), analytics (17), and
+   hardening/testing/polish (18–20), per the original phase list. Update
+   this file after each phase, not just at the end.
 
 **Also worth doing soon, not tied to a specific phase**: get a real
 `ANTHROPIC_API_KEY` into `.env` and live-verify the `anthropic` provider

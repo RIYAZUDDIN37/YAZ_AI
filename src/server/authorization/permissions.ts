@@ -14,16 +14,34 @@ export type Permission =
   | "business:onboard"
   | "business:manage"
   | "team:manage"
-  | "conversations:manage";
+  | "conversations:manage"
+  | "customers:manage"
+  | "catalogue:manage";
 
 const ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
-  OWNER: ["business:onboard", "business:manage", "team:manage", "conversations:manage"],
-  ADMIN: ["business:onboard", "business:manage", "team:manage", "conversations:manage"],
-  MANAGER: ["business:manage", "conversations:manage"],
+  OWNER: [
+    "business:onboard",
+    "business:manage",
+    "team:manage",
+    "conversations:manage",
+    "customers:manage",
+    "catalogue:manage",
+  ],
+  ADMIN: [
+    "business:onboard",
+    "business:manage",
+    "team:manage",
+    "conversations:manage",
+    "customers:manage",
+    "catalogue:manage",
+  ],
+  MANAGER: ["business:manage", "conversations:manage", "customers:manage", "catalogue:manage"],
   // Spec section 6: STAFF gets "conversation takeover" and "limited
   // customer access" — everyone who can be assigned a conversation needs
-  // conversations:manage, unlike the business-wide settings permissions.
-  STAFF: ["conversations:manage"],
+  // conversations:manage. customers:manage (CRM: customers + leads) is
+  // part of that same day-to-day job, unlike catalogue pricing/inventory
+  // or business-wide settings, which stay manager-and-up.
+  STAFF: ["conversations:manage", "customers:manage"],
 };
 
 export function can(role: OrgRole, permission: Permission): boolean {

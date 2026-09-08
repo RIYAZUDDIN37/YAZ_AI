@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireMembership } from "@/server/authorization/require-session";
 import { db } from "@/server/db/client";
@@ -13,16 +14,17 @@ export default async function DashboardOverviewPage() {
   const business = membership.organization.businesses[0];
   if (!business) redirect("/onboarding");
 
-  const [agent, conversationCount, leadCount, productCount, customerCount] =
+  const [agent, conversationCount, leadCount, productCount, customerCount, escalationCount] =
     await Promise.all([
       db.aIAgent.findFirst({
         where: { businessId: business.id },
         orderBy: { createdAt: "asc" },
       }),
-      db.conversation.count({ where: { businessId: business.id } }),
+      db.conversation.count({ where: { businessId: business.id, isTest: false } }),
       db.lead.count({ where: { businessId: business.id } }),
       db.product.count({ where: { businessId: business.id } }),
       db.customer.count({ where: { businessId: business.id } }),
+      db.agentExecution.count({ where: { businessId: business.id, status: "ESCALATED" } }),
     ]);
   const industryConfig = getIndustryConfig(business.industry);
 
@@ -58,13 +60,13 @@ export default async function DashboardOverviewPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
-              <Stat label="Conversations" value={String(conversationCount)} />
-              <Stat label="Leads" value={String(leadCount)} />
+              <Stat label="Conversations" value={String(conversationCount)} href="/dashboard/inbox" />
+              <Stat label="Leads" value={String(leadCount)} href="/dashboard/leads" />
               <Stat
                 label={`${industryConfig.appointmentLabel}s`}
                 value="0"
               />
-              <Stat label="Escalations" value="0" />
+              <Stat label="Escalations" value={String(escalationCount)} />
             </div>
           </CardContent>
         </Card>
@@ -76,35 +78,34 @@ export default async function DashboardOverviewPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
-            <Stat label={industryConfig.catalogueLabel} value={String(productCount)} />
-            <Stat label="Customers" value={String(customerCount)} />
+            <Stat
+              label={industryConfig.catalogueLabel}
+              value={String(productCount)}
+              href="/dashboard/products"
+            />
+            <Stat label="Customers" value={String(customerCount)} href="/dashboard/customers" />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-dashed">
-        <CardContent className="py-10 text-center">
-          <p className="font-medium">Conversations are real — the AI isn&apos;t, yet.</p>
-          <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground text-pretty">
-            <a href="/dashboard/inbox" className="underline underline-offset-2">
-              Inbox
-            </a>{" "}
-            is a working conversation system — persisted messages, human
-            replies, real state. What&apos;s next is the AI orchestration
-            engine that lets Maya actually handle these instead of a human
-            doing it manually every time.
-          </p>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
+function Stat({ label, value, href }: { label: string; value: string; href?: string }) {
+  const content = (
+    <>
       <p className="text-2xl font-semibold tabular-nums">{value}</p>
       <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block rounded-md transition-opacity hover:opacity-70">
+        {content}
+      </Link>
+    );
+  }
+
+  return <div>{content}</div>;
 }
