@@ -59,6 +59,21 @@ industries).
    composer: switching conversations without a page reload kept sending
    replies to whichever conversation the composer first mounted with —
    a real bug caught during live verification, not a hypothetical.
+5. **The Browser pane's `preview_start({name: ...})` can be anchored to
+   a stale project folder**, independent of this session's actual
+   working directory. On this machine it kept resolving to the old
+   pre-move `C:\...\OneDrive\Desktop\YAZ AI` copy (missing everything
+   built since the move to `D:\Projects\YAZ AI`), not the real
+   `.claude/launch.json`-less D: folder. Workaround: run the real
+   server manually (`npx next start -p <port>`) and `navigate`/
+   `preview_start({url: ...})` straight to it. Auth.js v5 then rejects
+   the request as `UntrustedHost` unless the port matches
+   `NEXTAUTH_URL` exactly (`http://localhost:3000` here) — either run on
+   that exact port, or set `AUTH_TRUST_HOST=true` for that one verification
+   process only (never commit it). If sign-in still redirects to a dead
+   port, the browser tool may also just refuse `navigate` to a
+   non-standard port outright — sticking to port 3000 sidesteps both
+   problems at once.
 
 ## Commands
 
@@ -210,6 +225,38 @@ design/status writeup: `docs/AI-ARCHITECTURE.md` — summary here:
   `"mock" | "anthropic"` (no OpenAI — deliberately not built),
   `AI_CHAT_MODEL` defaults to `claude-opus-5`, `OPENAI_API_KEY` removed.
 
+### Done (Phase 9–10) — knowledge retrieval + business-configurable governance
+
+Full design/status writeup: `docs/AI-ARCHITECTURE.md` — summary here:
+
+- `KnowledgeDocument` / `KnowledgeChunk` (`src/services/knowledge/`):
+  paste-text documents (no file storage abstraction yet), chunked
+  synchronously (`chunk-text.ts`) and retrieved by real lexical
+  (keyword-overlap) scoring (`retrieve.ts`) — honestly not semantic
+  embeddings (no `EmbeddingService`/API key), same "real data, simulated
+  understanding" posture as the mock AI provider.
+- `AgentRule` / `AgentGoal` (`src/services/agents/rules.ts`,
+  `goals.ts`) plus `AIAgent.tone`/`customInstructions` — owner-authored,
+  real rows injected into the system prompt in order by
+  `runAgentTurn`, replacing what used to be only a hardcoded rule.
+  `escalateToHuman` remains the one rule with a real code-level
+  effect; everything else is real, configurable prompt *content* now,
+  not yet a distinct validation stage.
+- `runAgentTurn` now retrieves knowledge before building the prompt and
+  logs a `context` trace step recording exactly which rules/goals/
+  knowledge chunks were used — both the Inbox context panel and the new
+  Test tab read this real data.
+- Train AI Employee page (`/dashboard/agent`, `business:manage` only):
+  Profile, Rules, Goals, Knowledge tabs (CRUD), and a Test tab — spec
+  section 14's simulator, calling the exact same `runAgentTurn` a real
+  conversation uses. `Conversation.isTest` keeps sandbox conversations
+  (always `customerId: null`) out of the real Inbox and real CRM data;
+  `createLead` honestly reports "no linked customer" in the sandbox
+  instead of writing a fake `Lead`.
+- `prisma/seed.ts` extended: 2 rules, 2 goals, and a real "Shipping &
+  Delivery Policy" `KnowledgeDocument` (chunked the same way the UI
+  does it) for Urban Living.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -254,6 +301,28 @@ session as the seeded owner:
   above) mid-verification: a reply briefly landed on the wrong
   conversation before the `key` fix; re-verified clean afterward.
 
+**Phase 9-10 live-verified** (2026-09-08), real browser session as the
+seeded owner, against a manually-run production build on `D:\Projects\
+YAZ AI` (see gotcha #5 above for why manual, not `preview_start`):
+- Profile, Rules, and Goals tabs render the seeded data correctly;
+  added a new rule live through the UI and confirmed it persisted (real
+  row, correct count on next render).
+- Knowledge tab shows the seeded "Shipping & Delivery Policy" document
+  with its real chunk count.
+- Test tab: asked "do you deliver outside Pune, and how much is
+  delivery?" — Maya (mock provider) retrieved the real knowledge chunk
+  and answered from it verbatim, with the turn trace correctly showing
+  "3 rules, 2 goals — knowledge: Shipping & Delivery Policy". Then asked
+  about a dining table — `searchProducts` returned real matches and
+  `createLead` correctly reported SUCCESS-but-honest
+  `{"error": "This conversation has no linked customer..."}` (confirmed
+  via `psql`: zero new `Lead` rows created, `customerId` genuinely
+  `null` on the test conversation). Reset correctly deleted the sandbox
+  conversation. Confirmed test conversations never appear in the real
+  Inbox (`isTest: false` filter).
+- Found and fixed nothing new this pass — the trickier bug was
+  environmental (gotcha #5), not application code.
+
 `npm run test` (Vitest) is still blocked on this machine: Node 20.8.0 is
 below the 20.12 the Vite/Vitest toolchain requires (`node:util`'s
 `styleText`). Everything else (`dev`, `build`, `lint`, `db:push`) works
@@ -291,39 +360,39 @@ elsewhere.
   against the real SDK types, and the mock provider (default) proves the
   rest of the pipeline works, but genuine LLM-driven tool calling hasn't
   been run. Add a key to `.env` and set `AI_PROVIDER="anthropic"` to try it.
-- **No knowledge/RAG, no business-configurable `AgentRule`** — Phase
-  9-10. Today's one governance rule (escalate instead of guessing) is
-  hardcoded into the orchestrator's system prompt, not per-business
-  configurable yet. See `docs/AI-ARCHITECTURE.md`.
+- **Knowledge retrieval is lexical, not semantic** — real chunking and
+  retrieval (Phase 9), but keyword-overlap scoring, not embeddings; no
+  `EmbeddingService`/API key. No file upload for documents either
+  (paste-text only). See `docs/AI-ARCHITECTURE.md`.
+- **Governance rules/goals are real content, not a validation stage** —
+  `AgentRule`/`AgentGoal` (Phase 10) are business-configurable and real,
+  but still enforced by the model reading them in the prompt; only
+  `escalateToHuman` has a genuine code-level effect. See
+  `docs/AI-ARCHITECTURE.md`.
 - **No OpenAI adapter** — deliberately not built; `AI_PROVIDER` only
   accepts `"mock"` or `"anthropic"`.
 - No OAuth providers wired (Credentials only) — see ARCHITECTURE.md for
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- Dashboard nav has two real items (Overview, Inbox) — still no
+- Dashboard nav has three real items (Overview, Inbox, Train AI
+  Employee — the last gated to `business:manage` roles) — still no
   Customers/Leads/Products links, because those dedicated pages don't
   exist yet (Phase 4-5). Adding the links before the pages would be
   dead navigation, which the spec explicitly forbids.
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 9–10** — knowledge/RAG pipeline (`KnowledgeDocument`/
-   `KnowledgeChunk`, upload → chunk → embed → retrieve, scoped to
-   businessId) and business-configurable governance (`AgentRule`,
-   `AgentPersonality`, `AgentGoal` — makes today's hardcoded escalation
-   rule a real per-business setting); Train/Test AI employee UI (the
-   simulator must call the exact same `runAgentTurn` real conversations
-   use, per spec section 14 — no separate fake implementation).
-2. **Phase 4–5** — full owner workspace nav + customers/leads/
+1. **Phase 4–5** — full owner workspace nav + customers/leads/
    appointments/products CRUD UI (the schema and dashboard stat counts
    already exist from Phase 3; this is the dedicated list/detail/edit
    pages).
-3. **Phase 15** — extend to the other four industries (Restaurant,
+2. **Phase 15** — extend to the other four industries (Restaurant,
    Salon, Dental, Electronics): seed data + any industry-specific tool
-   behavior (e.g. Dental's never-diagnose guardrail, once AgentRule
-   exists to enforce it as data rather than another hardcoded prompt line).
-4. Then automations (13), commerce — quotations/orders/payments (14),
+   behavior (e.g. Dental's never-diagnose guardrail — approximable today
+   with an `AgentRule`, still without dedicated validation-stage
+   enforcement).
+3. Then automations (13), commerce — quotations/orders/payments (14),
    the customer-facing widget (16), analytics (17), and hardening/
    testing/polish (18–20), per the original phase list. Update this file
    after each phase, not just at the end.

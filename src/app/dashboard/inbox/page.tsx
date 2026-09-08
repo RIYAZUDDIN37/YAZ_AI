@@ -22,7 +22,10 @@ export default async function InboxPage({
 
   const [conversations, customers, agent] = await Promise.all([
     db.conversation.findMany({
-      where: { businessId: business.id },
+      // Test-simulator conversations (Phase 9-10, isTest: true — see
+      // src/services/agents/test-simulator.ts) never show up in the real
+      // Inbox; they live only on the Train AI Employee page's Test tab.
+      where: { businessId: business.id, isTest: false },
       orderBy: { lastMessageAt: "desc" },
       include: {
         customer: true,
@@ -42,7 +45,7 @@ export default async function InboxPage({
   const activeId = selectedId ?? conversations[0]?.id;
   const active = activeId
     ? await db.conversation.findFirst({
-        where: { id: activeId, businessId: business.id },
+        where: { id: activeId, businessId: business.id, isTest: false },
         include: {
           customer: true,
           assignedTo: true,

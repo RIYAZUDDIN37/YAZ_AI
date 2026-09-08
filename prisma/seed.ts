@@ -12,6 +12,7 @@
  */
 import { PrismaClient, type LeadStatus, type Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { chunkText } from "../src/services/knowledge/chunk-text";
 
 const db = new PrismaClient();
 
@@ -22,13 +23,14 @@ const DEMO_OWNER = {
 };
 
 async function main() {
-  const { business, ownerUserId } = await seedBusiness();
+  const { business, ownerUserId, agentId } = await seedBusiness();
   const categories = await seedCategories(business.id);
   const products = await seedProducts(business.id, categories);
   await seedInventory(business.id, products);
   const customers = await seedCustomers(business.id);
   await seedLeads(business.id, customers);
   await seedConversations(business.id, ownerUserId, customers);
+  await seedAgentTraining(business.id, agentId);
 
   console.log("\nSeed complete.");
   console.log(`  Business: ${business.name} (${business.slug})`);
@@ -71,7 +73,78 @@ async function seedBusiness() {
     },
   });
 
-  return { business, ownerUserId: user.id };
+  const agent = await db.aIAgent.findFirstOrThrow({ where: { businessId: business.id } });
+
+  return { business, ownerUserId: user.id, agentId: agent.id };
+}
+
+/**
+ * Phase 9-10 demo data: a couple of owner-authored rules/goals (spec
+ * section 10) and one real knowledge document, chunked the same way
+ * createKnowledgeDocument() does it — so an evaluator opening the Train
+ * AI Employee page sees a populated, working example instead of an empty
+ * state, and the Test tab has something real to retrieve.
+ */
+async function seedAgentTraining(businessId: string, agentId: string) {
+  const existingRules = await db.agentRule.count({ where: { businessId } });
+  if (existingRules === 0) {
+    await db.agentRule.createMany({
+      data: [
+        {
+          businessId,
+          agentId,
+          instruction: "Never promise a delivery date — only the delivery timeframes in the knowledge base.",
+          order: 0,
+        },
+        {
+          businessId,
+          agentId,
+          instruction: "Never quote a discount above 10% — escalate anything larger to a human.",
+          order: 1,
+        },
+      ],
+    });
+  }
+
+  const existingGoals = await db.agentGoal.count({ where: { businessId } });
+  if (existingGoals === 0) {
+    await db.agentGoal.createMany({
+      data: [
+        { businessId, agentId, description: "Offer a showroom visit for any purchase over ₹30,000.", order: 0 },
+        { businessId, agentId, description: "Capture a lead for every genuine buying intent.", order: 1 },
+      ],
+    });
+  }
+
+  const existingDoc = await db.knowledgeDocument.findFirst({
+    where: { businessId, title: "Shipping & Delivery Policy" },
+  });
+  if (!existingDoc) {
+    const content = [
+      "Urban Living delivers across Pune within 5-7 business days of order confirmation.",
+      "For custom finishes (e.g. made-to-order upholstery colors), delivery takes 3-4 weeks.",
+      "Delivery is free for orders above ₹25,000; a flat ₹999 delivery fee applies below that.",
+      "We do not ship outside the Pune metropolitan area at this time.",
+      "Assembly is included free of charge for all wardrobe, bed frame, and dining table orders.",
+    ].join("\n\n");
+
+    const chunks = chunkText(content);
+    await db.knowledgeDocument.create({
+      data: {
+        businessId,
+        title: "Shipping & Delivery Policy",
+        content,
+        status: "READY",
+        chunks: {
+          create: chunks.map((chunkContent, chunkIndex) => ({
+            businessId,
+            chunkIndex,
+            content: chunkContent,
+          })),
+        },
+      },
+    });
+  }
 }
 
 const CATEGORY_DEFS = [

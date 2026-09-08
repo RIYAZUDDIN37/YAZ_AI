@@ -19,8 +19,11 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
                        ──< Lead ──< LeadActivity
                        ──< Conversation ──< Message
                                         ──< AgentExecution ──< AgentAction
+         ──< KnowledgeDocument ──< KnowledgeChunk
 
 AIAgent ──< AgentExecution
+        ──< AgentRule
+        ──< AgentGoal
 ```
 
 - **User** — one row per human. `passwordHash` (bcrypt, 12 rounds) backs
@@ -36,13 +39,27 @@ AIAgent ──< AgentExecution
   `industry` (enum: `FURNITURE` / `RESTAURANT` / `SALON` / `DENTAL` /
   `ELECTRONICS`), `timezone`, `currency`. `onboardedAt` distinguishes "has
   completed onboarding" without needing a separate state machine.
-- **AIAgent** — deliberately minimal right now: `name`, `title`, `status`.
-  Phase 7–10 expands this into the full agent governance model
-  (personality, goals, capabilities, rules, knowledge, tools,
-  permissions, escalation rules) described in AI-ARCHITECTURE.md — those
-  will be separate related models (`AgentConfiguration`,
-  `AgentPersonality`, `AgentRule`, ...), not more columns bolted onto this
-  one table.
+- **AIAgent** — `name`, `title`, `status`, plus two Phase 9-10 personality
+  fields: `tone` and `customInstructions` (plain strings, not a separate
+  `AgentPersonality` table — there's exactly one of each per agent, so a
+  1:1 join table would just be these same two columns one hop away).
+  Capabilities/tools/permissions are still code (`src/services/ai/tools/`),
+  not data — see AI-ARCHITECTURE.md.
+- **AgentRule / AgentGoal** — Phase 10's "Train your AI employee" (spec
+  section 10). Owner-authored, real rows (not more hardcoded prompt text)
+  injected into the system prompt in `order` by
+  `src/services/ai/orchestrator.ts`. Still prompt-based *content*, same
+  honest framing as the one hardcoded escalation rule — see
+  AI-ARCHITECTURE.md for what's genuinely code-enforced vs. configurable
+  content.
+- **KnowledgeDocument / KnowledgeChunk** — Phase 9's RAG pipeline, as
+  actually built: no file-storage abstraction exists yet, so a document
+  is pasted/plain text (`content`), chunked synchronously at creation
+  (`src/services/knowledge/chunk-text.ts`) into `KnowledgeChunk` rows.
+  Retrieval (`src/services/knowledge/retrieve.ts`) is real but lexical
+  (keyword-overlap scoring), not semantic embeddings — there's no
+  `EmbeddingService` or API key for one. Same "real data, honestly
+  simulated understanding" posture as the mock AI provider.
 - **AuditLog** — append-only. Every consequential action writes here
   through `src/services/audit/log.ts`, which is intentionally the *only*
   code path that writes to this table. Currently logs `user.registered`
@@ -86,7 +103,11 @@ AIAgent ──< AgentExecution
   `MessageAttachment` table yet: a single `assignedToUserId` on
   `Conversation` covers "who's handling this" until multi-participant
   tracking is actually needed, and attachments wait for the file-storage
-  abstraction (Phase 9).
+  abstraction. `isTest` (Phase 9-10) marks sandbox conversations created
+  by the Test Employee simulator (`src/services/agents/test-simulator.ts`)
+  — real rows in the same tables, kept out of the real Inbox query and
+  always `customerId: null` so a tool like `createLead` shows its actual
+  "no linked customer" constraint instead of writing fake CRM data.
 - **AgentExecution / AgentAction** — spec section 7/18. One
   `AgentExecution` per agentic turn (`src/services/ai/orchestrator.ts`),
   one `AgentAction` per tool call within it. `AgentExecution.trace` is a
@@ -145,12 +166,6 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 ## What's coming (by phase, not yet in the schema)
 
-- **Phase 9–10 (knowledge + business-configurable governance)**:
-  `AgentConfiguration`, `AgentPersonality`, `AgentCapability`,
-  `AgentRule`, `AgentGoal`, `KnowledgeDocument`, `KnowledgeChunk`,
-  `KnowledgeSource`. (`Tool`/`ToolPermission`/`ToolExecution` as
-  database-backed config are also still future — today's tool registry
-  is code, in `src/services/ai/tools/`, not data.)
 - **Phase 13 (automations)**: `Automation`, `AutomationTrigger`,
   `AutomationAction`, `WorkflowExecution`.
 - **Phase 14 (commerce)**: `Appointment`, `AppointmentType`,

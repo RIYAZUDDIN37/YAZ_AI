@@ -1,4 +1,7 @@
 import type { z } from "zod";
+import type { RetrievedChunk } from "@/services/knowledge/retrieve";
+
+export type { RetrievedChunk };
 
 /**
  * Provider-agnostic conversation history the orchestrator hands to
@@ -56,5 +59,11 @@ export interface AIProvider {
     messages: OrchestratorMessage[];
     tools: AgentTool[];
     toolContext: ToolContext;
+    /** Real KnowledgeChunk rows retrieved for this turn's message (Phase
+     * 9). Already folded into `systemPrompt` for providers (like
+     * Anthropic) that just read the prompt — passed separately too
+     * because the mock provider doesn't parse prompts, only keywords; see
+     * src/services/ai/providers/mock.ts. */
+    knowledgeContext: RetrievedChunk[];
   }): Promise<RunTurnResult>;
 }

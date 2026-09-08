@@ -20,6 +20,10 @@ export const anthropicProvider: AIProvider = {
   name: "anthropic",
 
   async runTurn({ systemPrompt, messages, tools, toolContext }) {
+    // knowledgeContext isn't a separate param here — the orchestrator
+    // already folds retrieved chunks into systemPrompt, which is all a
+    // real model needs (unlike the mock provider, which can't parse a
+    // prompt). See src/services/ai/types.ts.
     const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
     const anthropicTools: Anthropic.Tool[] = tools.map((tool) => ({

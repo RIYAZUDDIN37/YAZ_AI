@@ -169,6 +169,9 @@ model Business {
   leads             Lead[]
   conversations     Conversation[]
   agentExecutions   AgentExecution[]
+  agentRules        AgentRule[]
+  agentGoals        AgentGoal[]
+  knowledgeDocuments KnowledgeDocument[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -185,13 +188,113 @@ model AIAgent {
   name       String
   title      String
   status     AgentStatus @default(OFFLINE)
+  /// Phase 9-10 "Train your AI employee" — free-text personality knobs.
+  /// Deliberately plain string fields rather than a separate
+  /// AgentPersonality table: there's exactly one of each per agent, so a
+  /// 1:1 join table would just be these same two columns one hop away.
+  /// Both feed buildSystemPrompt() in src/services/ai/orchestrator.ts.
+  tone               String?
+  customInstructions String?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   executions AgentExecution[]
+  rules      AgentRule[]
+  goals      AgentGoal[]
 
   @@index([businessId])
   @@map("ai_agents")
+}
+
+/// Business-configurable governance (spec section 10, Phase 10). Unlike
+/// the one hardcoded rule in buildSystemPrompt() ("escalate instead of
+/// guessing"), these are owner-authored and injected into the system
+/// prompt in `order`. Still prompt-based enforcement, same honest framing
+/// as docs/AI-ARCHITECTURE.md already uses — a real business-configurable
+/// content path today, evaluated as a distinct pipeline stage later.
+model AgentRule {
+  id          String   @id @default(cuid())
+  businessId  String
+  agentId     String
+  instruction String
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  agent       AIAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([agentId])
+  @@map("agent_rules")
+}
+
+/// What the AI employee is optimizing for (e.g. "Qualify leads for
+/// high-value furniture", "Always offer a showroom visit"), distinct from
+/// AgentRule's hard constraints. Same injection mechanism as AgentRule.
+model AgentGoal {
+  id          String   @id @default(cuid())
+  businessId  String
+  agentId     String
+  description String
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  agent       AIAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([agentId])
+  @@map("agent_goals")
+}
+
+/// spec section 9 / Phase 9. No file-storage abstraction exists yet, so a
+/// document today is pasted/plain text, not an uploaded file — `content`
+/// holds it directly. Real chunking happens synchronously at creation
+/// (src/services/knowledge/chunk-text.ts), so `status` goes straight to
+/// READY or ERROR; PROCESSING exists for when an async pipeline (real file
+/// upload, OCR, etc.) actually lands and needs a transient state.
+enum KnowledgeDocumentStatus {
+  PROCESSING
+  READY
+  ERROR
+}
+
+model KnowledgeDocument {
+  id           String                  @id @default(cuid())
+  businessId   String
+  title        String
+  content      String
+  status       KnowledgeDocumentStatus @default(PROCESSING)
+  errorMessage String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  business     Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunks       KnowledgeChunk[]
+
+  @@index([businessId])
+  @@map("knowledge_documents")
+}
+
+/// Retrieval unit. src/services/knowledge/retrieve.ts scores these by
+/// lexical (keyword) overlap against the customer's message — real
+/// retrieval, not a stub, but honestly not embeddings-based semantic
+/// search yet (no EmbeddingService/API key — see AI-ARCHITECTURE.md). The
+/// same "simulated understanding, real data" posture as the mock AI
+/// provider.
+model KnowledgeChunk {
+  id         String            @id @default(cuid())
+  documentId String
+  businessId String
+  chunkIndex Int
+  content    String
+  createdAt  DateTime          @default(now())
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([documentId])
+  @@map("knowledge_chunks")
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +523,13 @@ model Conversation {
   customerId     String?
   assignedToUserId String?
   status         ConversationStatus @default(HUMAN_HANDLING)
+  /// Phase 9-10's Test Employee simulator (spec section 14) reuses the
+  /// real orchestrator instead of a separate mocked chat UI — this flag is
+  /// what keeps sandbox conversations out of the real Inbox list and out
+  /// of the customer picker (test conversations always have
+  /// customerId: null, so tools like createLead show their real "no
+  /// customer" constraint honestly rather than writing fake CRM data).
+  isTest         Boolean            @default(false)
   lastMessageAt  DateTime           @default(now())
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt

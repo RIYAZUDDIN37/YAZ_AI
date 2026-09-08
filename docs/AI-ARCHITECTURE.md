@@ -1,8 +1,10 @@
 # YAZ AI — AI Architecture
 
-**Status: the core orchestration engine is real and live-verified**
-(Phase 7-8). Knowledge retrieval (RAG) and business-configurable rules
-are still design-only — see the sections below marked as such.
+**Status: the core orchestration engine, knowledge retrieval, and
+business-configurable governance are all real and live-verified**
+(Phase 7-10). What's left design-only is called out explicitly below —
+mainly real (semantic) embeddings and a distinct rule-*validation*
+pipeline stage, as opposed to rules as prompt content.
 
 ## The abstraction layer, as built
 
@@ -13,14 +15,18 @@ AIProvider          — src/services/ai/provider.ts. The only thing that
                        (deliberately deferred — see "What's not built" below).
 ToolRegistry         — src/services/ai/tools/registry.ts. The fixed set
                        of actions the AI may take. 4 tools exist today.
+KnowledgeRetriever   — src/services/knowledge/retrieve.ts. Real, lexical
+                       (keyword-overlap) retrieval over KnowledgeChunk
+                       rows — see "Knowledge retrieval" below.
 AgentOrchestrator    — src/services/ai/orchestrator.ts (`runAgentTurn`).
                        Wires the above into the pipeline below.
 ```
 
-`EmbeddingService` and `KnowledgeRetriever` don't exist yet — there's no
-`KnowledgeChunk` table (Phase 9). "Understanding" today comes from
-conversation history + business/industry context + tool results, not a
-business's own uploaded documents.
+There's no `EmbeddingService` — no API key configured for one on this
+machine, so "Understanding" comes from conversation history +
+business/industry context + tool results + real-but-lexical knowledge
+retrieval + owner-configured rules/goals, not semantic search over a
+business's own uploaded documents (yet).
 
 ### The mock adapter (`src/services/ai/providers/mock.ts`) — default, live-verified
 
@@ -53,7 +59,9 @@ exercised against the real API — see CLAUDE.md.
 ```
 Customer Message                          (a real Message row, senderType CUSTOMER)
   → Conversation Context                  (prior Messages in the thread)
-  → Business Context                      (business name/industry, agent name/title)
+  → Business Context                      (business name/industry, agent name/title/tone)
+  → Knowledge Retrieval                   (lexical match over KnowledgeChunk — Phase 9)
+  → Rules + Goals                         (active AgentRule/AgentGoal rows — Phase 10)
   → AIProvider.runTurn(...)               (intent understanding + tool loop, in one call)
       → Tool Selection + Execution        (ToolRegistry — permissioned, Zod-validated, logged)
       → Response Generation
@@ -61,13 +69,17 @@ Customer Message                          (a real Message row, senderType CUSTOM
   → Agent Activity Log                    (AgentExecution + one AgentAction per tool call)
 ```
 
-Knowledge Retrieval and a separate "Safety / Business Rule Validation"
-step aren't wired in as distinct pipeline stages yet — see "What's not
-built" below. Every execution writes an `AgentExecution` row (status
-`SUCCESS` / `ESCALATED` / `ERROR`, a one-line `summary`, and a structured
-`trace` array) plus one `AgentAction` row per tool call. This is the
-literal data source the Inbox's context panel reads for "AI activity" —
-nothing there is fabricated independent of a real execution.
+Knowledge retrieval and rules/goals are real pipeline stages now (Phase
+9-10) — see the sections below for exactly what "real" means for each. A
+separate "Safety / Business Rule Validation" *stage* still isn't wired
+in as distinct from prompt content — see "What's not built" below. Every
+execution writes an `AgentExecution` row (status `SUCCESS` / `ESCALATED`
+/ `ERROR`, a one-line `summary`, and a structured `trace` array — now
+including a `context` step recording exactly which rules/goals/knowledge
+chunks were used) plus one `AgentAction` row per tool call. This is the
+literal data source the Inbox's context panel *and* the Train AI
+Employee page's Test tab read for "AI activity" — nothing there is
+fabricated independent of a real execution.
 
 ## Tools — 4 implemented, real, live-verified
 
@@ -95,20 +107,49 @@ Not yet built: `getProductDetails`, `searchServices`, `getServiceDetails`,
 these need models that don't exist yet (Appointment, Quotation, Order —
 Phase 14).
 
-## Governance today vs. the design goal
+## Knowledge retrieval — real, lexical (Phase 9)
 
-The design goal (spec section 10) is a business-configurable `AgentRule`
-model, evaluated before a response ships — not prose in a prompt. That
-model doesn't exist yet (Phase 10, "Train your AI employee"). What's
-real today is narrower but genuinely enforced: **the one rule that
-exists — "escalate instead of guessing at something outside your
-authority" — is hardcoded into the system prompt in
-`orchestrator.ts`'s `buildSystemPrompt()`, but its enforcement is a real
-tool call with a real database side effect** (`escalateToHuman` actually
-sets `HUMAN_NEEDED`), not just the model choosing polite words. That's
-the meaningful half of "governance is enforced code, not a prompt
-instruction" — the *content* of the rule is still prompt-based until
-Phase 10 makes it per-business configurable; its *effect* is not.
+`src/services/knowledge/retrieve.ts`'s `retrieveKnowledge()` scores real
+`KnowledgeChunk` rows against the customer's message by keyword overlap
+and returns the top matches with their source document attributed.
+`runAgentTurn` calls it before building the system prompt, folds the
+results into the prompt text (with a citation instruction: "according to
+your Shipping Policy..."), and — because the mock provider can't parse a
+system prompt, only keywords — also passes the retrieved chunks to
+`AIProvider.runTurn` as a separate `knowledgeContext` param that the mock
+provider genuinely reads (`src/services/ai/providers/mock.ts`): if no
+product/escalation keyword matches, but a knowledge chunk does, it
+replies from that chunk's real content. Live-verified: asking Maya
+(mock provider) "do you deliver outside Pune?" retrieves the real
+Shipping & Delivery Policy chunk and answers from it.
+
+What's honestly not here: semantic (embeddings-based) search. Chunking
+(`src/services/knowledge/chunk-text.ts`) is real and paragraph-aware;
+retrieval is real keyword-overlap scoring, not vector similarity. There's
+no `EmbeddingService` and no API key configured for one — swapping in
+real embeddings later only needs to replace `scoreOverlap()` in
+`retrieve.ts`, not any caller. There's also no file-storage abstraction
+yet, so a `KnowledgeDocument` is pasted/plain text today, not an
+uploaded file.
+
+## Governance — real, business-configurable content (Phase 10)
+
+Owners now author real `AgentRule` and `AgentGoal` rows from the Train AI
+Employee page (`/dashboard/agent`), not prose I hardcode. `runAgentTurn`
+fetches each agent's active rules/goals (ordered) and injects them into
+the system prompt alongside the one rule that's always there —
+"escalate instead of guessing at something outside your authority."
+**That one rule is still the only governance with a real code-level
+effect**: `escalateToHuman` actually sets `HUMAN_NEEDED` in the database,
+not just the model choosing polite words. Owner-authored rules/goals are
+real, configurable, per-business *content* fed to the model — a
+genuinely different and more useful state than Phase 7-8's "one
+hardcoded rule for everyone" — but they're still enforced by the model
+following instructions, not by a separate validation step that checks
+the AI's response against each rule before it ships. That's the gap
+"governance is enforced code, not a prompt instruction" still names:
+Phase 10 made the *content* real and configurable; a distinct
+*validation* stage remains future work (see below).
 
 ## How a conversation actually reaches the AI
 
@@ -129,32 +170,42 @@ All four are live-verified, including the full round trip:
 AI handles → escalates on an angry message → staff takes over → staff
 returns it to AI → AI picks the next customer message back up correctly.
 
+## The Train / Test AI Employee UI (Phase 9-10)
+
+`/dashboard/agent` (`business:manage` only — STAFF handles conversations,
+not the AI's configuration): Profile (name/title/tone/custom
+instructions), Rules, Goals, and Knowledge tabs are straightforward CRUD
+over the models above. The Test tab is the spec section 14 simulator —
+it calls `sendTestMessage` → the exact same `runAgentTurn` a real
+conversation uses, not a separate mocked chat. The only difference is
+`Conversation.isTest: true` and `customerId: null`: sandbox conversations
+are real rows (real `Message`, `AgentExecution`, `AgentAction`), but
+excluded from the real Inbox query and from ever touching real CRM data
+— `createLead` genuinely returns "no linked customer" in the sandbox
+rather than writing a fake `Lead`, which the Test tab surfaces
+transparently in its turn trace rather than hiding it. Live-verified:
+seeded rules/goals/knowledge show up correctly, a sandbox message
+retrieves the real knowledge chunk and cites it, a product query
+triggers `searchProducts` + the honest `createLead` "no customer" result,
+and Reset deletes the sandbox conversation (cascades to its messages/
+executions) cleanly.
+
 ## What's not built yet
 
-- **Knowledge retrieval / RAG** (Phase 9) — no `KnowledgeChunk` table,
-  no `EmbeddingService`. See the RAG pipeline design below, unchanged
-  from Phase 1.
-- **Business-configurable `AgentRule`/`AgentPersonality`/`AgentGoal`**
-  (Phase 10) — governance today is one hardcoded rule (above).
+- **Semantic (embeddings-based) knowledge retrieval** — today's
+  retrieval is real but lexical (keyword overlap); see "Knowledge
+  retrieval" above. No `EmbeddingService`, no API key configured for one.
+- **File uploads for knowledge documents** — no storage abstraction yet;
+  documents are pasted/plain text.
 - **A separate "Safety / Business Rule Validation" pipeline stage** —
-  today, the one rule that exists is baked into the system prompt the
-  model sees, not a distinct post-generation check step.
+  owner-authored rules/goals (Phase 10) are real and business-configurable
+  now, but still enforced by the model reading them in the prompt, not a
+  distinct post-generation check step. See "Governance" above.
 - **The OpenAI adapter** — deliberately not built. Anthropic was chosen
   as the one real provider to implement well rather than splitting
   effort across two; `AI_PROVIDER` only accepts `"mock"` or `"anthropic"`.
 - **Dental's never-diagnose guardrail** — lands with that vertical's
   configuration in Phase 15; the mechanism (a rule checked before a
   response ships) is the same one described above, just not written yet.
-
-## RAG pipeline (design only — Phase 9)
-
-```
-Upload → Store (S3-compatible storage abstraction) → Extract text
-  → Clean → Chunk → Embed (EmbeddingService) → Store (KnowledgeChunk)
-  → Index → Available to KnowledgeRetriever, scoped to businessId
-```
-
-Retrieval must support semantic search, metadata filtering, and always
-returns which source a chunk came from — so a response can say "according
-to your delivery policy..." and the owner can see, per document, its
-chunks, indexing status, and any processing errors.
+  A business can already approximate it today with an `AgentRule`, just
+  without the dedicated validation-stage enforcement.

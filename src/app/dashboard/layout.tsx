@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireMembership } from "@/server/authorization/require-session";
+import { can } from "@/server/authorization/permissions";
 import { Logo } from "@/components/shared/logo";
 import { Badge } from "@/components/ui/badge";
 import { UserMenu } from "@/components/dashboard/user-menu";
@@ -35,6 +36,9 @@ export default async function DashboardLayout({
               Overview
             </NavLink>
             <NavLink href="/dashboard/inbox">Inbox</NavLink>
+            {can(membership.role, "business:manage") ? (
+              <NavLink href="/dashboard/agent">Train AI Employee</NavLink>
+            ) : null}
           </nav>
 
           <UserMenu

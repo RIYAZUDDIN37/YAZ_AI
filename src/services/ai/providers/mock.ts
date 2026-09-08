@@ -63,7 +63,7 @@ function extractMaxPrice(text: string): number | undefined {
 export const mockProvider: AIProvider = {
   name: "mock",
 
-  async runTurn({ messages, toolContext }) {
+  async runTurn({ messages, toolContext, knowledgeContext }) {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
     const originalText = lastUserMessage?.content ?? "";
     const text = originalText.toLowerCase();
@@ -136,6 +136,20 @@ export const mockProvider: AIProvider = {
       return {
         replyText:
           "I couldn't find an exact match for that in our current catalogue — could you tell me a bit more about what you're looking for, or your budget?",
+        toolCalls,
+        escalated: false,
+        stopReason: "end_turn",
+      };
+    }
+
+    // No product/escalation keyword matched — this is the one place the
+    // mock provider genuinely reads retrieved knowledge (real chunks,
+    // real DB rows), since it doesn't parse the system prompt the way a
+    // real LLM would. See the AIProvider.runTurn doc comment.
+    if (knowledgeContext.length > 0) {
+      const top = knowledgeContext[0];
+      return {
+        replyText: `According to our ${top.documentTitle}: ${top.content}`,
         toolCalls,
         escalated: false,
         stopReason: "end_turn",

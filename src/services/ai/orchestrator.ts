@@ -3,27 +3,30 @@ import { db } from "@/server/db/client";
 import { getAIProvider } from "@/services/ai/provider";
 import { TOOL_REGISTRY } from "@/services/ai/tools/registry";
 import type { OrchestratorMessage } from "@/services/ai/types";
+import { retrieveKnowledge, type RetrievedChunk } from "@/services/knowledge/retrieve";
 import { writeAuditLog } from "@/services/audit/log";
 
 /**
  * The pipeline from docs/AI-ARCHITECTURE.md, condensed into one function:
  *
- *   customer message -> conversation + business context -> AIProvider
- *   (which itself does the intent/tool/response loop) -> post the reply
+ *   customer message -> conversation + business context -> knowledge
+ *   retrieval -> AIProvider (intent/tool/response loop) -> post the reply
  *   -> log an AgentExecution (+ one AgentAction per tool call)
  *
- * Knowledge retrieval isn't wired in yet (Phase 9 — no KnowledgeChunk
- * table exists), so "understanding" today comes from conversation
- * history + business/industry context + the tool results themselves, not
- * a business's uploaded documents. Business-configurable rules
- * (AgentRule, Phase 10's "Train your AI employee") don't exist yet
- * either — the one governance rule enforced right now (escalate instead
- * of guessing) is hardcoded into the system prompt below, not yet
- * per-business configurable. Both are called out here rather than
- * pretended away.
+ * Knowledge retrieval (Phase 9) is real but lexical, not semantic — see
+ * src/services/knowledge/retrieve.ts. Business-configurable AgentRule/
+ * AgentGoal (Phase 10's "Train your AI employee") are real, owner-authored
+ * rows injected into the system prompt in `order`; the one governance
+ * rule enforced with an actual code-level effect either way is still
+ * "escalate instead of guessing" (escalateToHuman really sets
+ * HUMAN_NEEDED) — everything else here is real, configurable *content*
+ * fed to the model, not yet a distinct validation stage. Both gaps are
+ * called out here rather than pretended away.
  *
  * Called whenever a CUSTOMER message lands on a conversation that's
- * AI_HANDLING — see src/services/conversations/handle-customer-message.ts.
+ * AI_HANDLING — see src/services/conversations/log-customer-message.ts
+ * and src/services/agents/test-simulator.ts (the Test Employee simulator
+ * calls this exact function too, not a separate mock).
  */
 export async function runAgentTurn(params: {
   businessId: string;
@@ -37,6 +40,10 @@ export async function runAgentTurn(params: {
     db.aIAgent.findFirstOrThrow({
       where: { businessId },
       orderBy: { createdAt: "asc" },
+      include: {
+        rules: { where: { isActive: true }, orderBy: { order: "asc" } },
+        goals: { where: { isActive: true }, orderBy: { order: "asc" } },
+      },
     }),
     db.message.findMany({
       where: { conversationId },
@@ -51,10 +58,35 @@ export async function runAgentTurn(params: {
       content: message.body,
     }));
 
-  const systemPrompt = buildSystemPrompt(business.name, business.industry, agent.name, agent.title);
+  const triggerMessage = history.find((message) => message.id === triggerMessageId);
+  const knowledgeContext: RetrievedChunk[] = triggerMessage
+    ? await retrieveKnowledge(businessId, triggerMessage.body)
+    : [];
+
+  const systemPrompt = buildSystemPrompt({
+    businessName: business.name,
+    industry: business.industry,
+    agentName: agent.name,
+    agentTitle: agent.title,
+    tone: agent.tone,
+    customInstructions: agent.customInstructions,
+    rules: agent.rules.map((rule) => rule.instruction),
+    goals: agent.goals.map((goal) => goal.description),
+    knowledgeContext,
+  });
 
   const trace: Prisma.InputJsonValue[] = [
     { step: "intent", detail: "Reading the customer's message in conversation context." },
+    {
+      step: "context",
+      detail: `Built system prompt with ${agent.rules.length} active rule(s), ${agent.goals.length} active goal(s), ${knowledgeContext.length} knowledge chunk(s).`,
+      rulesApplied: agent.rules.map((rule) => rule.instruction),
+      goalsApplied: agent.goals.map((goal) => goal.description),
+      knowledgeUsed: knowledgeContext.map((chunk) => ({
+        documentTitle: chunk.documentTitle,
+        score: chunk.score,
+      })),
+    },
   ];
 
   try {
@@ -63,6 +95,7 @@ export async function runAgentTurn(params: {
       messages: orchestratorMessages,
       tools: TOOL_REGISTRY,
       toolContext: { businessId, conversationId },
+      knowledgeContext,
     });
 
     for (const call of result.toolCalls) {
@@ -164,19 +197,60 @@ export async function runAgentTurn(params: {
   }
 }
 
-function buildSystemPrompt(
-  businessName: string,
-  industry: string,
-  agentName: string,
-  agentTitle: string,
-): string {
-  return [
+function buildSystemPrompt(params: {
+  businessName: string;
+  industry: string;
+  agentName: string;
+  agentTitle: string;
+  tone: string | null;
+  customInstructions: string | null;
+  rules: string[];
+  goals: string[];
+  knowledgeContext: RetrievedChunk[];
+}): string {
+  const { businessName, industry, agentName, agentTitle, tone, customInstructions, rules, goals, knowledgeContext } =
+    params;
+
+  const lines = [
     `You are ${agentName}, the ${agentTitle} at ${businessName}, a ${industry.toLowerCase()} business.`,
     "Help the customer by answering questions and taking real actions through the tools available to you.",
+  ];
+
+  if (tone) {
+    lines.push(`Tone: ${tone}`);
+  }
+
+  lines.push(
     "",
     "Rules:",
     "- Never invent product details, prices, or stock levels — always use a tool to check them.",
     "- If the customer asks for something outside your authority (a discount you have no tool for, a complaint, wanting to speak to a person, anything you're unsure about), call escalateToHuman instead of guessing.",
     "- Keep replies concise and friendly.",
-  ].join("\n");
+  );
+  for (const rule of rules) {
+    lines.push(`- ${rule}`);
+  }
+
+  if (goals.length > 0) {
+    lines.push("", "Your goals:");
+    for (const goal of goals) {
+      lines.push(`- ${goal}`);
+    }
+  }
+
+  if (customInstructions) {
+    lines.push("", "Additional instructions from the business owner:", customInstructions);
+  }
+
+  if (knowledgeContext.length > 0) {
+    lines.push("", "Knowledge base excerpts that may be relevant to this message:");
+    for (const chunk of knowledgeContext) {
+      lines.push(`--- From "${chunk.documentTitle}" ---`, chunk.content);
+    }
+    lines.push(
+      "Use these excerpts when relevant and cite the source document by name (e.g. \"according to your Shipping Policy\"). Don't invent content that isn't in an excerpt.",
+    );
+  }
+
+  return lines.join("\n");
 }
