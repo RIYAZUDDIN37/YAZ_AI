@@ -108,6 +108,7 @@ model User {
   assignedConversations Conversation[] @relation("AssignedConversations")
   sentMessages          Message[]      @relation("SentMessages")
   assignedAppointments  Appointment[]  @relation("AssignedAppointments")
+  notifications         Notification[]
 
   @@map("users")
 }
@@ -174,6 +175,9 @@ model Business {
   agentGoals        AgentGoal[]
   knowledgeDocuments KnowledgeDocument[]
   appointments       Appointment[]
+  automations        Automation[]
+  workflowExecutions WorkflowExecution[]
+  notifications      Notification[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -550,6 +554,108 @@ model LeadActivity {
 
   @@index([leadId])
   @@map("lead_activities")
+}
+
+// ---------------------------------------------------------------------------
+// Automations (Phase 13) — event-driven, not time-scheduled: a business
+// owner wires "when X happens, do Y" over events the app already
+// produces for real (a lead created, a status change, an AI escalation,
+// an appointment booked). There's no cron/queue infra in this app, so
+// every automation runs synchronously, in the same request, at the exact
+// moment its trigger event occurs — src/services/automations/run.ts is
+// called from the same service functions (and AI tools) that already
+// write the Lead/Conversation/Appointment rows, never a separate poller
+// pretending to "watch" for changes.
+// ---------------------------------------------------------------------------
+
+enum AutomationTriggerEvent {
+  LEAD_CREATED
+  LEAD_STATUS_CHANGED
+  CONVERSATION_ESCALATED
+  APPOINTMENT_BOOKED
+}
+
+enum AutomationActionType {
+  NOTIFY_TEAM
+  ADD_LEAD_NOTE
+  CHANGE_LEAD_STATUS
+}
+
+enum WorkflowExecutionStatus {
+  SUCCESS
+  SKIPPED
+  ERROR
+}
+
+model Automation {
+  id           String                 @id @default(cuid())
+  businessId   String
+  name         String
+  triggerEvent AutomationTriggerEvent
+  /// Trigger-specific filter, e.g. `{ "status": "WON" }` for
+  /// LEAD_STATUS_CHANGED — the automation only fires when the event's
+  /// context matches. Null/absent means "always fires" (the other three
+  /// triggers have no meaningful filter yet).
+  triggerConfig Json?
+  actionType   AutomationActionType
+  /// Action-specific payload, e.g. `{ "message": "..." }` for
+  /// NOTIFY_TEAM/ADD_LEAD_NOTE, `{ "status": "QUALIFIED" }` for
+  /// CHANGE_LEAD_STATUS.
+  actionConfig Json
+  isActive     Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  business     Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  executions   WorkflowExecution[]
+
+  @@index([businessId])
+  @@index([businessId, triggerEvent])
+  @@map("automations")
+}
+
+/// One row per automation firing attempt — the audit trail an owner
+/// reads to confirm an automation actually ran, same "real data, never
+/// fabricated" posture as AgentExecution. SKIPPED means the trigger
+/// event happened but `triggerConfig` didn't match; ERROR means the
+/// action itself failed (never lets that break the primary action that
+/// raised the event — see run.ts).
+model WorkflowExecution {
+  id           String                  @id @default(cuid())
+  automationId String
+  businessId   String
+  status       WorkflowExecutionStatus
+  summary      String
+  context      Json
+  errorMessage String?
+  createdAt    DateTime                @default(now())
+  automation   Automation              @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  business     Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([businessId])
+  @@map("workflow_executions")
+}
+
+/// In-app only for now (spec's Notification model, minus email/SMS/push
+/// delivery — no provider wired for any of those yet). `userId: null`
+/// means organization-wide (every member with access sees it); a set
+/// `userId` targets one person. NOTIFY_TEAM automations write the
+/// organization-wide kind.
+model Notification {
+  id         String    @id @default(cuid())
+  businessId String
+  userId     String?
+  title      String
+  body       String
+  link       String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([userId])
+  @@map("notifications")
 }
 
 // ---------------------------------------------------------------------------

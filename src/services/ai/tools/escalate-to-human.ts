@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { db } from "@/server/db/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { AgentTool } from "@/services/ai/types";
 
 const inputSchema = z.object({
@@ -33,7 +34,7 @@ export const escalateToHumanTool: AgentTool<Input, { escalated: true }> = {
   },
   zodSchema: inputSchema,
   async execute(input, ctx) {
-    await db.conversation.update({
+    const conversation = await db.conversation.update({
       where: { id: ctx.conversationId },
       data: { status: "HUMAN_NEEDED" },
     });
@@ -43,6 +44,17 @@ export const escalateToHumanTool: AgentTool<Input, { escalated: true }> = {
       businessId: ctx.businessId,
       metadata: { conversationId: ctx.conversationId, reason: input.reason },
     });
+
+    // Sandbox escalations (the Test Employee simulator) shouldn't page
+    // the real team — same "keep test data out of real workflows"
+    // reasoning as isTest keeping sandbox conversations out of the Inbox.
+    if (!conversation.isTest) {
+      await runAutomations(ctx.businessId, {
+        type: "CONVERSATION_ESCALATED",
+        conversationId: ctx.conversationId,
+        reason: input.reason,
+      });
+    }
 
     return { escalated: true };
   },

@@ -387,6 +387,69 @@ seeded Bright Smile Dental owner:
   diagnosis-avoidance judgment; that's what the Anthropic provider
   reading these same rules would actually do).
 
+### Done (Phase 13) — Automations + Notifications
+
+No cron/queue infra exists in this app, so an `Automation` is
+event-driven, not time-scheduled: it fires synchronously, in the same
+request, at the exact moment its trigger event happens.
+
+- `Automation` / `WorkflowExecution` / `Notification` models. 4 triggers
+  (`LEAD_CREATED`, `LEAD_STATUS_CHANGED` — with an optional target-status
+  filter, `CONVERSATION_ESCALATED`, `APPOINTMENT_BOOKED`) × 3 actions
+  (`NOTIFY_TEAM`, `ADD_LEAD_NOTE`, `CHANGE_LEAD_STATUS`). See
+  `docs/DATABASE.md`.
+- `src/services/automations/run.ts`: `runAutomations(businessId, event)`
+  — called directly from the exact service functions and AI tools that
+  already write the row the event describes (`createLead` human +
+  AI tool, `updateLeadStatus`, `escalateToHuman`, `createAppointment`
+  human + AI tool). Never throws past the caller (a misconfigured
+  automation must not break the real action that raised the event); logs
+  one real `WorkflowExecution` row per automation it evaluates
+  (`SUCCESS`/`SKIPPED`/`ERROR`) — same "real audit trail" posture as
+  `AgentExecution`.
+  `escalateToHuman` explicitly skips automations for sandbox (`isTest`)
+  conversations — a Test Employee simulator run shouldn't page the real
+  team; `createLead`/`createAppointment`'s existing "no linked customer"
+  early return already guards the sandbox case for those two triggers.
+- `/dashboard/automations` (`business:manage`): list with an active
+  toggle + delete, a create dialog whose sub-fields change based on the
+  chosen trigger/action (e.g. a target-status picker only appears for
+  `LEAD_STATUS_CHANGED`), and a real "Recent runs" panel reading
+  `WorkflowExecution` rows — not a separate, potentially-fabricated
+  activity feed.
+- `Notification` (in-app only — no email/SMS/push provider): a bell icon
+  in the dashboard header with a real unread count, and
+  `/dashboard/notifications` to read/mark-read. `NOTIFY_TEAM` creates one
+  row per organization member (their own `userId`), not a shared
+  `userId: null` row — keeps per-user read state correct without a join
+  table.
+- `prisma/seed.ts`: two real automations for Urban Living — "Notify team
+  on escalation" and "Celebrate won leads" (the second demonstrates the
+  `LEAD_STATUS_CHANGED` → `WON`-only filter).
+
+**Phase 13 live-verified** (2026-09-09), real browser session as the
+seeded Urban Living owner:
+- Changed a real lead's status to `WON` through the UI — "Celebrate won
+  leads" fired for real: a `🎉 Deal won...` note appeared in the lead's
+  activity feed, and a `SUCCESS` `WorkflowExecution` row showed up in
+  Automations' Recent runs, confirmed via `psql`.
+- Changed a different lead to `CONTACTED` — same automation correctly
+  logged `SKIPPED` ("Trigger condition didn't match"), proving the
+  `LEAD_STATUS_CHANGED` → target-status filter actually filters, not
+  just fires on any status change.
+- Returned a real conversation to AI, then logged a customer message
+  with escalation keywords — Maya called `escalateToHuman` for real,
+  which fired "Notify team on escalation": a real `Notification` row
+  appeared for the owner, the header bell showed an unread badge (1),
+  and `/dashboard/notifications` listed it; marked it read and confirmed
+  the badge cleared.
+- Sent the same escalation-triggering message through the Test
+  simulator (sandbox) — confirmed via `psql` that neither a new
+  `Notification` nor a new `WorkflowExecution` row was created,
+  proving the `isTest` guard in `escalateToHuman` actually suppresses
+  automations for sandbox conversations rather than just being
+  dead code.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -578,11 +641,20 @@ elsewhere.
   the dev DB that Restaurant/Salon onboarding works from genuine prior
   use (see Phase 15's "Done" note), but neither has a full seeded
   dataset the way Urban Living/Bright Smile Dental do.
+- **Automations only cover 4 triggers × 3 actions, and only
+  `LEAD_STATUS_CHANGED` has a condition filter** — no time-based/
+  scheduled triggers (no cron/queue infra exists, and building one just
+  for this would be a lot of infrastructure for a demo); no
+  multi-condition rules; no actions beyond notify/note/status-change
+  (e.g. no "send an email" — no email provider wired, same gap
+  `Notification` has for delivery). See `docs/DATABASE.md`.
+- **Notifications are in-app only** — no email/SMS/push delivery for any
+  notification, automation-triggered or otherwise.
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. Automations (13), the rest of commerce — quotations/orders/payments
-   (14, `AvailabilitySlot` included), the customer-facing widget (16),
+1. The rest of commerce — quotations/orders/payments (14,
+   `AvailabilitySlot` included), the customer-facing widget (16),
    analytics (17), and hardening/testing/polish (18–20), per the
    original phase list. Update this file after each phase, not just at
    the end.

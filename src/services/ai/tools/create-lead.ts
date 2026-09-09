@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { db } from "@/server/db/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { AgentTool } from "@/services/ai/types";
 
 const inputSchema = z.object({
@@ -54,6 +55,13 @@ export const createLeadTool: AgentTool<Input, CreateLeadResult | { error: string
       action: "lead.created_by_ai",
       businessId: ctx.businessId,
       metadata: { leadId: lead.id, conversationId: ctx.conversationId, intent: input.intent },
+    });
+
+    await runAutomations(ctx.businessId, {
+      type: "LEAD_CREATED",
+      leadId: lead.id,
+      customerId: conversation.customerId,
+      intent: lead.intent,
     });
 
     return { leadId: lead.id, status: lead.status };

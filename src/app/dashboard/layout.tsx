@@ -2,10 +2,12 @@ import { redirect } from "next/navigation";
 import { requireMembership } from "@/server/authorization/require-session";
 import { can } from "@/server/authorization/permissions";
 import { getIndustryConfig } from "@/config/industries";
+import { db } from "@/server/db/client";
 import { Logo } from "@/components/shared/logo";
 import { Badge } from "@/components/ui/badge";
 import { UserMenu } from "@/components/dashboard/user-menu";
 import { NavLink } from "@/components/dashboard/nav-link";
+import { NotificationBell } from "@/components/dashboard/notification-bell";
 
 export default async function DashboardLayout({
   children,
@@ -19,6 +21,9 @@ export default async function DashboardLayout({
     redirect("/onboarding");
   }
   const industryConfig = getIndustryConfig(business.industry);
+  const unreadCount = await db.notification.count({
+    where: { businessId: business.id, userId: session.user.id, readAt: null },
+  });
 
   return (
     <div className="flex h-screen flex-col">
@@ -53,14 +58,20 @@ export default async function DashboardLayout({
               </NavLink>
             ) : null}
             {can(membership.role, "business:manage") ? (
-              <NavLink href="/dashboard/agent">Train AI Employee</NavLink>
+              <>
+                <NavLink href="/dashboard/agent">Train AI Employee</NavLink>
+                <NavLink href="/dashboard/automations">Automations</NavLink>
+              </>
             ) : null}
           </nav>
 
-          <UserMenu
-            name={session.user.name ?? "You"}
-            email={session.user.email ?? ""}
-          />
+          <div className="flex items-center gap-3">
+            <NotificationBell unreadCount={unreadCount} />
+            <UserMenu
+              name={session.user.name ?? "You"}
+              email={session.user.email ?? ""}
+            />
+          </div>
         </div>
       </header>
       <main className="min-h-0 flex-1">{children}</main>

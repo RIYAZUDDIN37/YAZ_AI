@@ -21,6 +21,8 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
                                         ──< AgentExecution ──< AgentAction
                        ──< Appointment
          ──< KnowledgeDocument ──< KnowledgeChunk
+         ──< Automation ──< WorkflowExecution
+         ──< Notification
 
 AIAgent ──< AgentExecution
         ──< AgentRule
@@ -106,6 +108,20 @@ AIAgent ──< AgentExecution
   conversation" vs. staff-booked convention — the AI's `createAppointment`
   tool writes here through the same permissioned path as everything
   else it does.
+- **Automation / WorkflowExecution / Notification** — Phase 13. No
+  cron/queue infra exists, so an `Automation` is event-driven, not
+  time-scheduled: `src/services/automations/run.ts` runs synchronously,
+  called directly from the same service functions (and AI tools) that
+  already write the row the event describes (a lead created, a status
+  change, an AI escalation, an appointment booked) — never a poller
+  pretending to watch for changes. `WorkflowExecution` is the real audit
+  trail (`SUCCESS`/`SKIPPED`/`ERROR`) an owner reads to confirm an
+  automation actually ran, same posture as `AgentExecution`.
+  `Notification` is in-app only (no email/SMS/push provider wired) —
+  `userId: null` is schema support for an org-wide notification, but
+  nothing writes one today; `NOTIFY_TEAM` creates one row per member
+  instead, so per-user read state (`readAt`) is unambiguous without a
+  separate join table.
 - **Conversation / Message** — spec sections 6, 11, 17. `status` is one
   of the four states spec section 11 names (`AI_HANDLING` /
   `HUMAN_NEEDED` / `HUMAN_HANDLING` / `RESOLVED`) — **all four are real
@@ -174,6 +190,11 @@ to re-run via `npm run db:seed`.
   catalogue/CRM children); `customerId`/`leadId`/`assignedToUserId` all
   → `SetNull` — an appointment record should outlive any of those being
   deleted, same as `Lead.customerId`.
+- `Automation` → `Cascade` from `Business`; `WorkflowExecution` →
+  `Cascade` from `Automation` (a run log has no meaning once the
+  automation it logs is deleted). `Notification` → `Cascade` from both
+  `Business` and `User` — unlike audit/history rows, a notification
+  really should disappear if the account it was for is gone.
 
 ## Tenant isolation, structurally
 
@@ -185,13 +206,16 @@ by convention. See [SECURITY.md](./SECURITY.md).
 
 ## What's coming (by phase, not yet in the schema)
 
-- **Phase 13 (automations)**: `Automation`, `AutomationTrigger`,
-  `AutomationAction`, `WorkflowExecution`.
+- **Phase 13 (automations)**: `Automation`/`WorkflowExecution`/
+  `Notification` now exist (see above) — no more `AutomationTrigger`/
+  `AutomationAction` join tables than that; the trigger/action shape is
+  a fixed enum pair plus one `Json` config column each, not a separate
+  table per trigger/action instance.
 - **Phase 14 (rest of commerce)**: `Appointment` itself now exists (see
   above); still missing: `AppointmentType`, `AvailabilitySlot` (today's
   booking has no conflict/slot checking), `Quotation`, `QuotationItem`,
   `Order`, `OrderItem`, `Payment`, `PaymentLink`, `PaymentTransaction`.
-- Also queued: `Notification`, `Integration`, `Subscription`.
+- Also queued: `Integration`, `Subscription`.
 
 Each addition gets the same treatment as what's here: a tenant foreign
 key, indexes on every foreign key, and cascade behavior decided

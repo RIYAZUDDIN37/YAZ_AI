@@ -47,6 +47,7 @@ async function main() {
   await seedConversations(business.id, ownerUserId, customers);
   await seedAgentTraining(business.id, agentId);
   await seedAppointments(business.id, ownerUserId, customers);
+  await seedAutomations(business.id);
   const dental = await seedDentalDemo();
 
   console.log("\nSeed complete.");
@@ -597,6 +598,38 @@ async function seedAppointments(
       scheduledAt: nextSaturday,
       status: "CONFIRMED",
     },
+  });
+}
+
+/**
+ * Phase 13: two real automations for Urban Living, exercising both
+ * action types and the LEAD_STATUS_CHANGED trigger's condition
+ * filtering. Fires for real the next time their trigger event happens —
+ * e.g. re-run the escalation flow from Phase 7-8's live verification and
+ * a real Notification row lands for the owner.
+ */
+async function seedAutomations(businessId: string) {
+  const existing = await db.automation.count({ where: { businessId } });
+  if (existing > 0) return;
+
+  await db.automation.createMany({
+    data: [
+      {
+        businessId,
+        name: "Notify team on escalation",
+        triggerEvent: "CONVERSATION_ESCALATED",
+        actionType: "NOTIFY_TEAM",
+        actionConfig: { message: "An AI conversation was escalated and needs attention." },
+      },
+      {
+        businessId,
+        name: "Celebrate won leads",
+        triggerEvent: "LEAD_STATUS_CHANGED",
+        triggerConfig: { status: "WON" },
+        actionType: "ADD_LEAD_NOTE",
+        actionConfig: { message: "🎉 Deal won — thanks to everyone who helped close this." },
+      },
+    ],
   });
 }
 

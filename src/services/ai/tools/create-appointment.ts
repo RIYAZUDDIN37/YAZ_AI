@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { db } from "@/server/db/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { AgentTool } from "@/services/ai/types";
 
 const inputSchema = z.object({
@@ -58,6 +59,13 @@ export const createAppointmentTool: AgentTool<Input, CreateAppointmentResult | {
       action: "appointment.created_by_ai",
       businessId: ctx.businessId,
       metadata: { appointmentId: appointment.id, conversationId: ctx.conversationId, purpose: input.purpose },
+    });
+
+    await runAutomations(ctx.businessId, {
+      type: "APPOINTMENT_BOOKED",
+      appointmentId: appointment.id,
+      customerId: conversation.customerId,
+      purpose: input.purpose,
     });
 
     return { appointmentId: appointment.id, scheduledAt: appointment.scheduledAt.toISOString() };

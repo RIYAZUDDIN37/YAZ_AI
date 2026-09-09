@@ -3,6 +3,7 @@ import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { UpdateLeadStatusInput } from "@/lib/validation/leads";
 
 const STATUS_LABEL: Record<UpdateLeadStatusInput["status"], string> = {
@@ -49,6 +50,14 @@ export async function updateLeadStatus(
     action: "lead.status_changed",
     businessId,
     metadata: { leadId: lead.id, from: lead.status, to: input.status },
+  });
+
+  await runAutomations(businessId, {
+    type: "LEAD_STATUS_CHANGED",
+    leadId: lead.id,
+    customerId: lead.customerId,
+    fromStatus: lead.status,
+    toStatus: input.status,
   });
 
   return updated;

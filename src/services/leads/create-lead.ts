@@ -3,6 +3,7 @@ import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { CreateLeadInput } from "@/lib/validation/leads";
 
 /**
@@ -45,6 +46,13 @@ export async function createLead(
     action: "lead.created",
     businessId,
     metadata: { leadId: lead.id, customerId: customer.id },
+  });
+
+  await runAutomations(businessId, {
+    type: "LEAD_CREATED",
+    leadId: lead.id,
+    customerId: customer.id,
+    intent: lead.intent,
   });
 
   return lead;

@@ -3,6 +3,7 @@ import { ForbiddenError, NotFoundError, AppError } from "@/lib/errors";
 import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import { writeAuditLog } from "@/services/audit/log";
+import { runAutomations } from "@/services/automations/run";
 import type { CreateAppointmentInput } from "@/lib/validation/appointments";
 
 /**
@@ -49,6 +50,13 @@ export async function createAppointment(
     businessId,
     userId: actorUserId,
     metadata: { appointmentId: appointment.id, customerId: customer.id },
+  });
+
+  await runAutomations(businessId, {
+    type: "APPOINTMENT_BOOKED",
+    appointmentId: appointment.id,
+    customerId: customer.id,
+    purpose: appointment.purpose,
   });
 
   return appointment;
