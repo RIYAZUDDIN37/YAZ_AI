@@ -15,6 +15,14 @@ export interface IndustryConfig {
   defaultAgentTitle: string;
   appointmentLabel: string;
   catalogueLabel: string;
+  /** Which catalogue model backs this industry's `catalogueLabel` (spec
+   * section 22): `Product` for Furniture/Electronics and — despite the
+   * "Menu" label — Restaurant (a menu item is priced/sold like a
+   * product, not time-booked); `Service` (time-based, `durationMinutes`)
+   * for Salon/Dental. Drives which dashboard route/model
+   * `/dashboard/products` vs `/dashboard/services` — reads. See
+   * docs/DATABASE.md. */
+  catalogueType: "products" | "services";
 }
 
 export const INDUSTRIES: IndustryConfig[] = [
@@ -27,6 +35,7 @@ export const INDUSTRIES: IndustryConfig[] = [
     defaultAgentTitle: "Customer & Sales Agent",
     appointmentLabel: "Showroom Visit",
     catalogueLabel: "Products",
+    catalogueType: "products",
   },
   {
     value: "RESTAURANT",
@@ -36,6 +45,7 @@ export const INDUSTRIES: IndustryConfig[] = [
     defaultAgentTitle: "Reservations & Orders Agent",
     appointmentLabel: "Reservation",
     catalogueLabel: "Menu",
+    catalogueType: "products",
   },
   {
     value: "SALON",
@@ -45,6 +55,7 @@ export const INDUSTRIES: IndustryConfig[] = [
     defaultAgentTitle: "Booking Agent",
     appointmentLabel: "Service Appointment",
     catalogueLabel: "Services",
+    catalogueType: "services",
   },
   {
     value: "DENTAL",
@@ -55,6 +66,7 @@ export const INDUSTRIES: IndustryConfig[] = [
     defaultAgentTitle: "Patient Coordinator",
     appointmentLabel: "Doctor Appointment",
     catalogueLabel: "Services",
+    catalogueType: "services",
   },
   {
     value: "ELECTRONICS",
@@ -64,6 +76,7 @@ export const INDUSTRIES: IndustryConfig[] = [
     defaultAgentTitle: "Sales & Support Agent",
     appointmentLabel: "Store Visit",
     catalogueLabel: "Products",
+    catalogueType: "products",
   },
 ];
 

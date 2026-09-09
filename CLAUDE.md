@@ -330,6 +330,63 @@ Just the `Appointment` model + booking, not the rest of commerce
   visit for this Saturday" — that row is what makes the narration true
   rather than just a plausible-sounding string.
 
+### Done (Phase 15) — Services catalogue + Dental guardrail
+
+- `IndustryConfig` gained `catalogueType: "products" | "services"`
+  (`src/config/industries.ts`): Furniture/Electronics/Restaurant are
+  `"products"` (Restaurant's "Menu" label notwithstanding — a menu item
+  is priced/sold, not time-booked); Salon/Dental are `"services"`. Drives
+  which route/model the catalogue nav link, Overview stat, and count
+  query use — one industry, one code path, no per-vertical branching
+  scattered across pages.
+- `/dashboard/services` (+ detail/edit page): full CRUD parity with
+  Products — list, create dialog, editable detail page. No inventory
+  section (services aren't stocked) and no AI tool parity yet
+  (`searchServices`/`getServiceDetails` are still on the "not yet built"
+  list in `docs/AI-ARCHITECTURE.md` — a deliberate scope trim, not an
+  oversight).
+- **Second demo business**: Bright Smile Dental (Dental, Bengaluru;
+  `owner@brightsmile.test` / `BrightSmile123!`) — `prisma/seed.ts`,
+  lighter than Urban Living by design (it exists to prove genericity,
+  not to be a second flagship). 4 services across 2 categories, 3
+  customers, 2 leads, 1 conversation (a patient asking a diagnostic
+  question, a human declining to diagnose over chat — the scenario the
+  guardrail exists for), 1 appointment, and — the actual point — **2
+  real `AgentRule` rows implementing Dental's "never diagnose" guardrail**
+  (spec's named example), injected into Aria's system prompt exactly
+  like any other business's rules. Same honest framing as everywhere
+  else: the rule *content* is real and business-configurable now; a
+  distinct validation stage that checks a response against it before it
+  ships still doesn't exist. See `docs/AI-ARCHITECTURE.md`.
+- Also discovered (not created by me): real `Spice Route` (Restaurant,
+  owned by a real test account) and `yolo` (Salon, owned by the actual
+  project owner's own account) businesses already existed in the dev DB
+  from genuine prior onboarding — both with correctly-created industry
+  agents (Nora, Zara). Left untouched (not my data to modify), but it's
+  real corroborating evidence the onboarding wizard already handles
+  Restaurant and Salon correctly, on top of the Dental path this phase
+  verified directly.
+
+**Phase 15 live-verified** (2026-09-09), real browser session as the
+seeded Bright Smile Dental owner:
+- `/dashboard/services` renders all 4 seeded services correctly; nav
+  and Overview both correctly route to Services/its count (not
+  Products) — confirmed `catalogueType` branching works, not just typechecks.
+- Overview's `${appointmentLabel}s` stat correctly reads "Doctor
+  Appointments" (industry label) with the real count.
+- Created a new service ("Dental X-Ray") through the dialog — confirmed
+  via `psql`: real `Service` row, correct slug/duration/price.
+- Train Aria → Rules tab shows both real Dental guardrail rules. Sent a
+  diagnostic-shaped test message ("my gum has been bleeding for a week,
+  is that serious?") through the Test tab — confirmed via `psql` against
+  the actual `AgentExecution.trace` JSON that both rules' full text and
+  both goals' full text were genuinely embedded in the turn's context
+  (not just a count). The mock provider's reply itself was its generic
+  fallback (no dental-specific keyword logic was added — the mock's
+  honest job is proving the pipeline works, not simulating real
+  diagnosis-avoidance judgment; that's what the Anthropic provider
+  reading these same rules would actually do).
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -497,12 +554,9 @@ elsewhere.
   why the Prisma adapter isn't set up yet.
 - No rate limiting, no file upload validation yet (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
-- **No Services UI** — `Service`/`ServiceCategory` have schema and AI-tool
-  support parity with Product, but no dedicated CRUD pages yet, since
-  Urban Living (Furniture) is the only seeded/live business and its
-  catalogue is Products. Lands with Phase 15's other four industries.
-- **No category-management UI** — `createProductCategory` exists as a
-  service; product create/edit forms only pick among existing categories.
+- **No category-management UI** — `createProductCategory`/
+  `createServiceCategory` exist as services; catalogue create/edit forms
+  only pick among existing categories.
 - **No quotations/orders/payments** — the rest of Phase 14's commerce
   scope; only `Appointment` exists so far.
 - **Appointment booking has no conflict/slot checking** — no
@@ -512,19 +566,26 @@ elsewhere.
   not whatever date the customer actually said ("this Saturday", etc.).
   The row it creates is real; only the "when" is a simplification. A
   real LLM (the Anthropic provider) doesn't have this limit.
+- **No `searchServices`/`getServiceDetails` AI tools** — the AI can
+  search/check Products but not Services yet; a Salon/Dental AI employee
+  can't look up its own catalogue mid-conversation. Deliberate scope
+  trim for Phase 15 (Services CRUD + the Dental guardrail were the
+  point), not an oversight. See `docs/AI-ARCHITECTURE.md`.
+- **Restaurant and Electronics have no seeded demo business** — their
+  onboarding path and catalogue UI are code-verified (Restaurant reuses
+  the exact Products path Furniture already proves; Electronics is
+  identical to Furniture's `catalogueType`), and real evidence exists in
+  the dev DB that Restaurant/Salon onboarding works from genuine prior
+  use (see Phase 15's "Done" note), but neither has a full seeded
+  dataset the way Urban Living/Bright Smile Dental do.
 
 ## Next steps (core-first order — see "Build order decision" above)
 
-1. **Phase 15** — extend to the other four industries (Restaurant,
-   Salon, Dental, Electronics): seed data, a Services CRUD UI (parallel
-   to Products), and any industry-specific tool behavior (e.g. Dental's
-   never-diagnose guardrail — approximable today with an `AgentRule`,
-   still without dedicated validation-stage enforcement).
-2. Then automations (13), the rest of commerce — quotations/orders/
-   payments (14, `AvailabilitySlot` included), the customer-facing
-   widget (16), analytics (17), and hardening/testing/polish (18–20),
-   per the original phase list. Update this file after each phase, not
-   just at the end.
+1. Automations (13), the rest of commerce — quotations/orders/payments
+   (14, `AvailabilitySlot` included), the customer-facing widget (16),
+   analytics (17), and hardening/testing/polish (18–20), per the
+   original phase list. Update this file after each phase, not just at
+   the end.
 
 **Also worth doing soon, not tied to a specific phase**: get a real
 `ANTHROPIC_API_KEY` into `.env` and live-verify the `anthropic` provider

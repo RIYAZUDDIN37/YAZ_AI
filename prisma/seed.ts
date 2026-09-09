@@ -1,10 +1,19 @@
 /**
- * Seeds one realistic demo business — Urban Living (furniture, Pune) — so
- * an evaluator can sign in and see a populated workspace immediately,
- * instead of the empty state a fresh sign-up produces (spec section 35,
- * "Demo Mode"). Everything here is data a real Urban Living could plausibly
- * have; nothing simulates AI activity that hasn't actually run (Phase 7+
- * generates real AgentExecution/AgentAction/LeadActivity rows once the
+ * Seeds two realistic demo businesses so an evaluator can sign in and see
+ * a populated workspace immediately, instead of the empty state a fresh
+ * sign-up produces (spec section 35, "Demo Mode"):
+ *   - Urban Living (Furniture, Pune) — the primary demo, deep: products,
+ *     inventory, customers, leads, conversations, AI training, knowledge,
+ *     an appointment.
+ *   - Bright Smile Dental (Dental, Bengaluru) — Phase 15's proof that the
+ *     Service catalogue type and the Dental "never diagnose" guardrail
+ *     (an AgentRule, not another hardcoded prompt line) are real and
+ *     industry-agnostic, not Furniture-only code paths. Lighter than
+ *     Urban Living by design — it exists to prove genericity, not to be
+ *     a second flagship.
+ * Everything here is data a real business could plausibly have; nothing
+ * simulates AI activity that hasn't actually run (Phase 7+ generates
+ * real AgentExecution/AgentAction/LeadActivity rows once the
  * orchestration engine exists — seeding fake ones now would violate the
  * project's own "never fabricate AI activity" rule).
  *
@@ -22,6 +31,12 @@ const DEMO_OWNER = {
   password: "UrbanLiving123!",
 };
 
+const DENTAL_OWNER = {
+  name: "Dr. Rohan Mehta",
+  email: "owner@brightsmile.test",
+  password: "BrightSmile123!",
+};
+
 async function main() {
   const { business, ownerUserId, agentId } = await seedBusiness();
   const categories = await seedCategories(business.id);
@@ -32,10 +47,13 @@ async function main() {
   await seedConversations(business.id, ownerUserId, customers);
   await seedAgentTraining(business.id, agentId);
   await seedAppointments(business.id, ownerUserId, customers);
+  const dental = await seedDentalDemo();
 
   console.log("\nSeed complete.");
   console.log(`  Business: ${business.name} (${business.slug})`);
   console.log(`  Sign in:  ${DEMO_OWNER.email} / ${DEMO_OWNER.password}`);
+  console.log(`  Business: ${dental.business.name} (${dental.business.slug})`);
+  console.log(`  Sign in:  ${DENTAL_OWNER.email} / ${DENTAL_OWNER.password}`);
 }
 
 async function seedBusiness() {
@@ -584,6 +602,271 @@ async function seedAppointments(
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * Phase 15: Bright Smile Dental, Bengaluru — proves the Service catalogue
+ * type (durationMinutes, no InventoryItem) and the Dental "never
+ * diagnose" guardrail are real, industry-agnostic mechanisms, not more
+ * Furniture-shaped code. Deliberately lighter than Urban Living.
+ */
+async function seedDentalDemo() {
+  const passwordHash = await bcrypt.hash(DENTAL_OWNER.password, 12);
+
+  const user = await db.user.upsert({
+    where: { email: DENTAL_OWNER.email },
+    update: {},
+    create: { name: DENTAL_OWNER.name, email: DENTAL_OWNER.email, passwordHash },
+  });
+
+  const organization = await db.organization.upsert({
+    where: { slug: "bright-smile-hq" },
+    update: {},
+    create: {
+      name: "Bright Smile Dental HQ",
+      slug: "bright-smile-hq",
+      members: { create: { userId: user.id, role: "OWNER" } },
+    },
+  });
+
+  const business = await db.business.upsert({
+    where: { slug: "bright-smile-dental" },
+    update: {},
+    create: {
+      organizationId: organization.id,
+      name: "Bright Smile Dental",
+      slug: "bright-smile-dental",
+      industry: "DENTAL",
+      timezone: "Asia/Kolkata",
+      currency: "INR",
+      onboardedAt: new Date(),
+      agents: {
+        create: { name: "Aria", title: "Patient Coordinator", status: "ONLINE" },
+      },
+    },
+  });
+
+  const agent = await db.aIAgent.findFirstOrThrow({ where: { businessId: business.id } });
+
+  const CATEGORY_DEFS = [
+    { name: "General Dentistry", slug: "general-dentistry" },
+    { name: "Cosmetic Dentistry", slug: "cosmetic-dentistry" },
+  ] as const;
+  const categories: Record<string, { id: string }> = {};
+  for (const def of CATEGORY_DEFS) {
+    categories[def.slug] = await db.serviceCategory.upsert({
+      where: { businessId_slug: { businessId: business.id, slug: def.slug } },
+      update: {},
+      create: { businessId: business.id, name: def.name, slug: def.slug },
+    });
+  }
+
+  const SERVICE_DEFS = [
+    {
+      slug: "general-checkup-cleaning",
+      name: "General Checkup & Cleaning",
+      categorySlug: "general-dentistry",
+      durationMinutes: 30,
+      price: "800.00",
+      description: "Routine exam and professional cleaning.",
+    },
+    {
+      slug: "dental-filling",
+      name: "Dental Filling",
+      categorySlug: "general-dentistry",
+      durationMinutes: 45,
+      price: "1500.00",
+      description: "Composite filling for a single cavity.",
+    },
+    {
+      slug: "root-canal-treatment",
+      name: "Root Canal Treatment",
+      categorySlug: "general-dentistry",
+      durationMinutes: 90,
+      price: "6000.00",
+      description: "Full root canal treatment, single sitting where possible.",
+    },
+    {
+      slug: "teeth-whitening",
+      name: "Teeth Whitening",
+      categorySlug: "cosmetic-dentistry",
+      durationMinutes: 60,
+      price: "4500.00",
+      description: "In-clinic professional whitening treatment.",
+    },
+  ] as const;
+
+  for (const def of SERVICE_DEFS) {
+    await db.service.upsert({
+      where: { businessId_slug: { businessId: business.id, slug: def.slug } },
+      update: {},
+      create: {
+        businessId: business.id,
+        categoryId: categories[def.categorySlug].id,
+        name: def.name,
+        slug: def.slug,
+        description: def.description,
+        durationMinutes: def.durationMinutes,
+        price: def.price,
+        status: "ACTIVE",
+      },
+    });
+  }
+
+  const CUSTOMER_DEFS = [
+    { name: "Kavya Nair", email: "kavya.nair@example.com", phone: "+91 98450 11223", source: "Website" },
+    { name: "Arjun Rao", email: "arjun.rao@example.com", phone: "+91 98450 22334", source: "Referral" },
+    { name: "Meera Iyer", email: "meera.iyer@example.com", phone: "+91 98450 33445", source: "Walk-in" },
+  ] as const;
+
+  const customers = [];
+  for (const def of CUSTOMER_DEFS) {
+    const existing = await db.customer.findFirst({ where: { businessId: business.id, email: def.email } });
+    const customer =
+      existing ??
+      (await db.customer.create({
+        data: { businessId: business.id, name: def.name, email: def.email, phone: def.phone, source: def.source },
+      }));
+    customers.push(customer);
+  }
+
+  const LEAD_DEFS: { customerIndex: number; status: LeadStatus; intent: string; value: string; activity: string }[] = [
+    {
+      customerIndex: 0,
+      status: "QUALIFIED",
+      intent: "Wants a teeth whitening consultation before a wedding",
+      value: "4500.00",
+      activity: "Asked whether whitening results last through wedding photos.",
+    },
+    {
+      customerIndex: 1,
+      status: "APPOINTMENT",
+      intent: "Booked in for a root canal evaluation",
+      value: "6000.00",
+      activity: "Booked an appointment to assess a painful molar.",
+    },
+  ];
+  for (const def of LEAD_DEFS) {
+    const customer = customers[def.customerIndex];
+    const existing = await db.lead.findFirst({ where: { businessId: business.id, customerId: customer.id } });
+    if (existing) continue;
+    await db.lead.create({
+      data: {
+        businessId: business.id,
+        customerId: customer.id,
+        status: def.status,
+        source: customer.source,
+        intent: def.intent,
+        value: def.value,
+        activities: {
+          create: [
+            { type: "created", body: "Lead created." },
+            { type: "note", body: def.activity },
+          ],
+        },
+      },
+    });
+  }
+
+  // A real conversation showing what the guardrail is FOR: a patient
+  // asking a diagnostic question, a human declining to diagnose over
+  // chat. Once Anthropic's provider is live-verified, the same shape of
+  // message should get the same non-diagnosis behavior from Aria.
+  const existingConvo = await db.conversation.findFirst({
+    where: { businessId: business.id, customerId: customers[2].id },
+  });
+  if (!existingConvo) {
+    const conversation = await db.conversation.create({
+      data: {
+        businessId: business.id,
+        customerId: customers[2].id,
+        assignedToUserId: user.id,
+        status: "HUMAN_HANDLING",
+        messages: {
+          create: {
+            senderType: "CUSTOMER",
+            body: "My tooth has been aching for two days, could it be a cavity?",
+          },
+        },
+      },
+    });
+    await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        senderType: "STAFF",
+        senderUserId: user.id,
+        body: "Sorry to hear that — I can't diagnose it over chat, but let's get you in for a checkup as soon as possible. Does tomorrow afternoon work?",
+      },
+    });
+    await db.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: new Date() } });
+  }
+
+  const existingAppointment = await db.appointment.findFirst({
+    where: { businessId: business.id, customerId: customers[1].id },
+  });
+  if (!existingAppointment) {
+    const rootCanalLead = await db.lead.findFirst({
+      where: { businessId: business.id, customerId: customers[1].id },
+    });
+    const scheduledAt = new Date();
+    scheduledAt.setDate(scheduledAt.getDate() + 3);
+    scheduledAt.setHours(10, 30, 0, 0);
+    await db.appointment.create({
+      data: {
+        businessId: business.id,
+        customerId: customers[1].id,
+        leadId: rootCanalLead?.id,
+        assignedToUserId: user.id,
+        purpose: "Root canal evaluation",
+        scheduledAt,
+        status: "SCHEDULED",
+      },
+    });
+  }
+
+  const existingRules = await db.agentRule.count({ where: { businessId: business.id } });
+  if (existingRules === 0) {
+    await db.agentRule.createMany({
+      data: [
+        {
+          businessId: business.id,
+          agentId: agent.id,
+          instruction:
+            "Never diagnose a dental condition, suggest a specific treatment, or comment on symptoms/X-rays — always say a dentist needs to examine them in person, and help book an appointment instead.",
+          order: 0,
+        },
+        {
+          businessId: business.id,
+          agentId: agent.id,
+          instruction:
+            "Never quote a final price without confirming the exact procedure with a dentist first — treatment costs can change after an in-person examination.",
+          order: 1,
+        },
+      ],
+    });
+  }
+
+  const existingGoals = await db.agentGoal.count({ where: { businessId: business.id } });
+  if (existingGoals === 0) {
+    await db.agentGoal.createMany({
+      data: [
+        {
+          businessId: business.id,
+          agentId: agent.id,
+          description: "Book a consultation for anyone describing dental pain or discomfort.",
+          order: 0,
+        },
+        {
+          businessId: business.id,
+          agentId: agent.id,
+          description: "Reassure anxious patients and explain what to expect at their visit.",
+          order: 1,
+        },
+      ],
+    });
+  }
+
+  return { business };
 }
 
 main()

@@ -46,7 +46,11 @@ export default async function DashboardLayout({
               </>
             ) : null}
             {can(membership.role, "catalogue:manage") ? (
-              <NavLink href="/dashboard/products">{industryConfig.catalogueLabel}</NavLink>
+              <NavLink
+                href={industryConfig.catalogueType === "services" ? "/dashboard/services" : "/dashboard/products"}
+              >
+                {industryConfig.catalogueLabel}
+              </NavLink>
             ) : null}
             {can(membership.role, "business:manage") ? (
               <NavLink href="/dashboard/agent">Train AI Employee</NavLink>

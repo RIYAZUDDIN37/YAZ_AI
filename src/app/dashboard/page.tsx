@@ -14,7 +14,9 @@ export default async function DashboardOverviewPage() {
   const business = membership.organization.businesses[0];
   if (!business) redirect("/onboarding");
 
-  const [agent, conversationCount, leadCount, productCount, customerCount, escalationCount, appointmentCount] =
+  const industryConfig = getIndustryConfig(business.industry);
+
+  const [agent, conversationCount, leadCount, catalogueCount, customerCount, escalationCount, appointmentCount] =
     await Promise.all([
       db.aIAgent.findFirst({
         where: { businessId: business.id },
@@ -22,12 +24,14 @@ export default async function DashboardOverviewPage() {
       }),
       db.conversation.count({ where: { businessId: business.id, isTest: false } }),
       db.lead.count({ where: { businessId: business.id } }),
-      db.product.count({ where: { businessId: business.id } }),
+      industryConfig.catalogueType === "services"
+        ? db.service.count({ where: { businessId: business.id } })
+        : db.product.count({ where: { businessId: business.id } }),
       db.customer.count({ where: { businessId: business.id } }),
       db.agentExecution.count({ where: { businessId: business.id, status: "ESCALATED" } }),
       db.appointment.count({ where: { businessId: business.id } }),
     ]);
-  const industryConfig = getIndustryConfig(business.industry);
+  const catalogueHref = industryConfig.catalogueType === "services" ? "/dashboard/services" : "/dashboard/products";
 
   return (
     <div className="mx-auto h-full max-w-6xl space-y-8 overflow-y-auto px-6 py-10">
@@ -82,8 +86,8 @@ export default async function DashboardOverviewPage() {
           <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
             <Stat
               label={industryConfig.catalogueLabel}
-              value={String(productCount)}
-              href="/dashboard/products"
+              value={String(catalogueCount)}
+              href={catalogueHref}
             />
             <Stat label="Customers" value={String(customerCount)} href="/dashboard/customers" />
           </div>

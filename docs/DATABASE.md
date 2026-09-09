@@ -82,7 +82,12 @@ AIAgent ──< AgentExecution
   parallel to Product/ProductCategory rather than reusing the same table,
   because a service's meaningful fields (`durationMinutes`) and a
   product's (`images`) genuinely differ — a shared table would need
-  nullable columns for whichever type a row isn't.
+  nullable columns for whichever type a row isn't. Has a real CRUD UI
+  now (Phase 15, `/dashboard/services`) — `IndustryConfig.catalogueType`
+  (`src/config/industries.ts`) decides whether a business's catalogue
+  nav/stat routes here or to `/dashboard/products`; Restaurant is
+  `"products"` despite its "Menu" label (a menu item is priced/sold, not
+  time-booked), Salon/Dental are `"services"`.
 - **Customer / CustomerNote / CustomerTag** — the CRM (spec section 19).
   `tags` is an implicit Prisma many-to-many (no join model needed yet —
   add one later only if tagging itself needs metadata, e.g. `taggedAt`).

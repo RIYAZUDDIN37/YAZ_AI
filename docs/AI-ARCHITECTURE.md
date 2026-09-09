@@ -213,8 +213,14 @@ executions) cleanly.
 - **The OpenAI adapter** — deliberately not built. Anthropic was chosen
   as the one real provider to implement well rather than splitting
   effort across two; `AI_PROVIDER` only accepts `"mock"` or `"anthropic"`.
-- **Dental's never-diagnose guardrail** — lands with that vertical's
-  configuration in Phase 15; the mechanism (a rule checked before a
-  response ships) is the same one described above, just not written yet.
-  A business can already approximate it today with an `AgentRule`, just
-  without the dedicated validation-stage enforcement.
+- **Dental's never-diagnose guardrail — the *content* is real (Phase
+  15), the *enforcement mechanism* still isn't.** Bright Smile Dental
+  (`prisma/seed.ts`'s second demo business) has two real `AgentRule`
+  rows — "never diagnose a condition, suggest a treatment, or comment on
+  symptoms/X-rays" and "never quote a final price without a dentist
+  confirming the procedure" — injected into Aria's system prompt exactly
+  like any other business's rules (see "Governance" above). What's
+  *not* here yet is a distinct validation stage that checks a
+  generated response against the rule before it ships — same gap as
+  every other business's rules, just now demonstrated on the vertical
+  the spec calls out by name.
