@@ -7,6 +7,7 @@ import { Logo } from "@/components/shared/logo";
 import { Badge } from "@/components/ui/badge";
 import { UserMenu } from "@/components/dashboard/user-menu";
 import { NavLink } from "@/components/dashboard/nav-link";
+import { MoreNav } from "@/components/dashboard/more-nav";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
 
 export default async function DashboardLayout({
@@ -47,7 +48,6 @@ export default async function DashboardLayout({
               <>
                 <NavLink href="/dashboard/customers">Customers</NavLink>
                 <NavLink href="/dashboard/leads">Leads</NavLink>
-                <NavLink href="/dashboard/appointments">{industryConfig.appointmentLabel}s</NavLink>
               </>
             ) : null}
             {can(membership.role, "catalogue:manage") ? (
@@ -57,12 +57,24 @@ export default async function DashboardLayout({
                 {industryConfig.catalogueLabel}
               </NavLink>
             ) : null}
-            {can(membership.role, "business:manage") ? (
-              <>
-                <NavLink href="/dashboard/agent">Train AI Employee</NavLink>
-                <NavLink href="/dashboard/automations">Automations</NavLink>
-              </>
-            ) : null}
+            <MoreNav
+              items={[
+                ...(can(membership.role, "customers:manage")
+                  ? [
+                      { href: "/dashboard/appointments", label: `${industryConfig.appointmentLabel}s` },
+                      { href: "/dashboard/quotations", label: "Quotations" },
+                      { href: "/dashboard/orders", label: "Orders" },
+                    ]
+                  : []),
+                ...(can(membership.role, "business:manage")
+                  ? [
+                      { href: "/dashboard/analytics", label: "Analytics" },
+                      { href: "/dashboard/agent", label: "Train AI Employee" },
+                      { href: "/dashboard/automations", label: "Automations" },
+                    ]
+                  : []),
+              ]}
+            />
           </nav>
 
           <div className="flex items-center gap-3">

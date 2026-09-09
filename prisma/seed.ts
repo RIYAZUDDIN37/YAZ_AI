@@ -48,6 +48,7 @@ async function main() {
   await seedAgentTraining(business.id, agentId);
   await seedAppointments(business.id, ownerUserId, customers);
   await seedAutomations(business.id);
+  await seedCommerce(business.id, ownerUserId, customers, products);
   const dental = await seedDentalDemo();
 
   console.log("\nSeed complete.");
@@ -631,6 +632,75 @@ async function seedAutomations(businessId: string) {
       },
     ],
   });
+}
+
+/**
+ * Phase 14 (rest of commerce): one quotation still in progress (Rohan
+ * Kulkarni's real "living room refresh" lead already has a Proposal
+ * status and a staff message naming exact products/prices — this
+ * quotation is what makes that concrete) and one fully-paid order
+ * (Ananya Deshmukh's WON dining table lead) so Analytics has real
+ * revenue to show from the moment the seed runs, not just after manual
+ * testing.
+ */
+async function seedCommerce(
+  businessId: string,
+  ownerUserId: string,
+  customers: Awaited<ReturnType<typeof seedCustomers>>,
+  products: Awaited<ReturnType<typeof seedProducts>>,
+) {
+  const findProduct = (slug: string) => products.find(({ product }) => product.slug === slug)!.product;
+
+  const rohan = customers[1];
+  const existingQuotation = await db.quotation.findFirst({ where: { businessId, customerId: rohan.id } });
+  if (!existingQuotation) {
+    const rohanLead = await db.lead.findFirst({ where: { businessId, customerId: rohan.id } });
+    const sofa = findProduct("haven-3-seater-sofa");
+    const coffeeTable = findProduct("aster-coffee-table");
+    await db.quotation.create({
+      data: {
+        businessId,
+        customerId: rohan.id,
+        leadId: rohanLead?.id,
+        status: "SENT",
+        notes: "Formal quotation per phone conversation.",
+        items: {
+          create: [
+            { productId: sofa.id, description: sofa.name, quantity: 1, unitPrice: sofa.price },
+            { productId: coffeeTable.id, description: coffeeTable.name, quantity: 1, unitPrice: coffeeTable.price },
+          ],
+        },
+      },
+    });
+  }
+
+  const ananya = customers[0];
+  const existingOrder = await db.order.findFirst({ where: { businessId, customerId: ananya.id } });
+  if (!existingOrder) {
+    const diningTable = findProduct("oslo-6-seater-dining-table");
+    const order = await db.order.create({
+      data: {
+        businessId,
+        customerId: ananya.id,
+        status: "FULFILLED",
+        items: {
+          create: [
+            { productId: diningTable.id, description: diningTable.name, quantity: 1, unitPrice: diningTable.price },
+          ],
+        },
+      },
+    });
+    await db.payment.create({
+      data: {
+        businessId,
+        orderId: order.id,
+        amount: diningTable.price,
+        method: "UPI",
+        reference: "UPI-REF-88213",
+        recordedByUserId: ownerUserId,
+      },
+    });
+  }
 }
 
 function randomInt(min: number, max: number) {

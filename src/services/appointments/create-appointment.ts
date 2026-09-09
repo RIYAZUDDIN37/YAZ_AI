@@ -4,6 +4,7 @@ import { can } from "@/server/authorization/permissions";
 import type { OrgRole } from "@prisma/client";
 import { writeAuditLog } from "@/services/audit/log";
 import { runAutomations } from "@/services/automations/run";
+import { findAppointmentConflict } from "@/services/appointments/check-conflict";
 import type { CreateAppointmentInput } from "@/lib/validation/appointments";
 
 /**
@@ -34,6 +35,16 @@ export async function createAppointment(
     throw new AppError("Enter a valid date and time.");
   }
 
+  // No duration field in the booking form yet — every human-booked
+  // appointment defaults to 30 minutes, same as the schema default.
+  const durationMinutes = 30;
+  const conflict = await findAppointmentConflict(businessId, scheduledAt, durationMinutes);
+  if (conflict) {
+    throw new AppError(
+      `That slot overlaps an existing appointment (${conflict.customer?.name ?? "another customer"} at ${conflict.scheduledAt.toLocaleString()}) — pick a different time.`,
+    );
+  }
+
   const appointment = await db.appointment.create({
     data: {
       businessId,
@@ -41,6 +52,7 @@ export async function createAppointment(
       assignedToUserId: actorUserId,
       purpose: input.purpose,
       scheduledAt,
+      durationMinutes,
       status: "SCHEDULED",
     },
   });

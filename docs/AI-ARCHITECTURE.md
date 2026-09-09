@@ -174,10 +174,16 @@ Phase 10 made the *content* real and configurable; a distinct
 - **"Return to AI"** (`updateConversationStatus` → `AI_HANDLING`): if the
   last message in the thread is an unanswered customer message, runs the
   orchestrator immediately instead of leaving the conversation idle.
+- **A real, anonymous website visitor** (`sendWidgetMessage`, Phase 16
+  — the one unauthenticated entry point in the app, rate-limited by IP
+  instead of gated by a session): starts `AI_HANDLING` immediately, same
+  as `startConversation`. Calls the exact same `runAgentTurn` — a
+  widget conversation is not a separate, lesser code path.
 
-All four are live-verified, including the full round trip:
+All five are live-verified, including the full round trip:
 AI handles → escalates on an angry message → staff takes over → staff
-returns it to AI → AI picks the next customer message back up correctly.
+returns it to AI → AI picks the next customer message back up correctly;
+the widget path separately verified end-to-end via its public API.
 
 ## The Train / Test AI Employee UI (Phase 9-10)
 

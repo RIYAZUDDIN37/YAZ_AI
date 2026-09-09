@@ -450,6 +450,130 @@ seeded Urban Living owner:
   automations for sandbox conversations rather than just being
   dead code.
 
+### Done (Phase 14, rest) — Quotations, Orders, Payments
+
+The commerce scope Phase 14 originally named alongside Appointments —
+built in one continuous pass with Phases 16-20 per the user's explicit
+"finish the rest of the project without stopping to ask" request.
+
+- `Quotation`/`QuotationItem`, `Order`/`OrderItem`, `Payment` models.
+  `src/services/commerce/catalogue-lookup.ts` resolves a line item
+  against Product *or* Service depending on `IndustryConfig.
+  catalogueType` — one lookup, used by both Quotations and Orders,
+  instead of duplicating the branch. `unitPrice` is copied at add-time,
+  not a live reference — a sent quotation can't silently reprice.
+- `Payment` honestly models a staff member recording a payment already
+  received (cash/UPI/bank transfer/card) — no real payment gateway is
+  wired on this machine, so there's deliberately no `PaymentLink`/
+  `PaymentTransaction`. See `docs/DATABASE.md`.
+- Appointment conflict checking, finally: `src/services/appointments/
+  check-conflict.ts` queries existing `Appointment` rows for an
+  overlapping time window (no separate `AvailabilitySlot` table —
+  treats the business as one implicit resource) — wired into both the
+  human booking service and the AI's `createAppointment` tool, which
+  now returns an honest "that time is already booked" instead of
+  silently double-booking.
+- `/dashboard/quotations` (+ detail: add/remove items while `DRAFT`,
+  status actions, "Convert to order") and `/dashboard/orders` (+
+  detail: items, status, a payments panel showing amount paid vs.
+  total). Both gated by `customers:manage`, same tier as Leads.
+- Nav restructured: a "More" dropdown (`src/components/dashboard/
+  more-nav.tsx`) holds Appointments/Quotations/Orders/Analytics/Train
+  AI Employee/Automations — the flat nav bar was outgrowing a single
+  row now that this many real pages exist.
+- `prisma/seed.ts`: a `SENT` quotation for Rohan Kulkarni (2 items,
+  matching the exact products/prices his existing Inbox conversation
+  already names) and a fully-paid `FULFILLED` order for Ananya
+  Deshmukh's `WON` lead — so Analytics has real revenue from the
+  moment the seed runs.
+
+Live-verified against real Postgres: accepted the seeded quotation
+through the UI, converted it to a real order (items copied correctly),
+recorded a partial payment (₹30,000 of ₹66,199) with correct staff
+attribution, confirmed the running balance updated — all confirmed via
+`psql`.
+
+### Done (Phase 16) — customer-facing widget
+
+The one unauthenticated, public surface in the app.
+
+- `src/app/widget/[slug]/page.tsx` + `src/app/api/widget/[slug]/
+  message/route.ts`: a business embeds `<iframe src=".../widget/{slug}">`
+  on their own website (snippet + live preview generated in a new
+  "Website widget" tab on the Train AI Employee page). A real,
+  anonymous "Website visitor" `Customer` + `Conversation` gets created
+  on first message; `sendWidgetMessage` (`src/services/conversations/
+  widget-message.ts`) calls the exact same `runAgentTurn` real Inbox
+  conversations use — not a separate, simplified widget-only pipeline.
+  Conversation continuity across messages is a `conversationId` held in
+  `sessionStorage`, re-validated server-side against the business slug
+  and `isTest: false` on every request (never trusted as authorization
+  by itself).
+- Redis, provisioned since Phase 0-1 and never used until now, finally
+  does something real: `src/server/redis/client.ts` +
+  `src/lib/rate-limit.ts` rate-limit the widget endpoint by IP
+  (20 messages/minute), Redis-backed so it's correct across multiple
+  server instances, falling back to an in-memory counter (fails open,
+  never blocks the widget) if Redis is unreachable.
+- `next.config.ts` sends `X-Frame-Options: SAMEORIGIN` on every route
+  *except* `/widget/*` — the one route that must be embeddable
+  cross-origin. Verified empirically (see Verification status below),
+  not just written and assumed correct.
+
+Live-verified: posted directly to the public API (`curl`, no auth) and
+got a real AI reply referencing real product data; confirmed the
+resulting `Customer`/`Conversation` rows are real (`source: "Website
+Widget"`, `isTest: false`) via `psql`; sent 22 rapid requests and
+watched the 21st get a real `429` (confirmed the rate-limit key
+actually appears in Redis via `redis-cli KEYS`, not just the in-memory
+fallback); drove the widget page itself in a real browser session and
+got a real, in-context reply; confirmed `X-Frame-Options` is present on
+a normal page and genuinely absent on `/widget/urban-living`.
+
+### Done (Phase 17) — Analytics
+
+`/dashboard/analytics` (`business:manage`): lead conversion rate,
+AI escalation rate, appointment no-show rate, and revenue collected as
+stat cards, plus a lead funnel, conversation-status breakdown, AI-turn
+outcome breakdown, and automation-run breakdown as plain-CSS horizontal
+bar charts (`Prisma`'s `groupBy`/`aggregate` — no charting library
+pulled in for divs with a width percentage). Every number is a live
+aggregate query against real rows from every phase before this one —
+there's nothing to fake here by construction.
+
+Live-verified: the numbers shown matched exactly what this session's
+own testing had produced by that point (e.g. revenue collected —
+₹72,999 — matched the sum of the seeded payment plus the payment just
+recorded live, independently confirmed via `psql`).
+
+### Done (Phase 18-20) — hardening, testing, polish
+
+- **Security headers** (`next.config.ts`): `X-Content-Type-Options`,
+  `Referrer-Policy` everywhere; `X-Frame-Options` everywhere except the
+  widget (see Phase 16 above). Verified with real `curl` requests
+  against a running server, not assumed from reading the config.
+- **Rate limiting** exists for the one route that needed it most (the
+  public widget) — see Phase 16. Sign-in/sign-up still don't have it;
+  see Known limitations.
+- **Real unit tests added** for pure, DB-free logic:
+  `tests/unit/services/knowledge/chunk-text.test.ts` (new), and
+  `tests/unit/server/permissions.test.ts` — the latter was **stale**
+  (asserted "STAFF gets no permissions," which stopped being true back
+  in Phase 4-5) and has been corrected to test the real current matrix,
+  including `customers:manage`/`catalogue:manage`. **Not run on this
+  machine** — `npm run test` is still blocked by the Node 20.8.0/Vitest
+  incompatibility (see Known limitations); tried downgrading Vitest to
+  a pre-rolldown version first, confirmed it doesn't help (a hoisted
+  `rolldown` dependency still gets pulled into Vite's config-loading
+  path regardless), and reverted that attempt rather than leave the
+  dependency tree in a worse, unverified state. These tests are
+  typechecked and ready to run the moment Node is upgraded.
+- **`docs/SECURITY.md`** gained a section on the widget's actual
+  security model (rate limiting, tenant-scoping, no `X-Frame-Options`)
+  and an updated, honest Known gaps list.
+- Reviewed for dead nav / stale copy while building the above; found
+  none beyond what earlier phases already fixed.
+
 ### Verification status
 
 `npm run typecheck`, `npm run lint`, and `npm run build` all pass clean.
@@ -615,15 +739,16 @@ elsewhere.
   accepts `"mock"` or `"anthropic"`.
 - No OAuth providers wired (Credentials only) — see ARCHITECTURE.md for
   why the Prisma adapter isn't set up yet.
-- No rate limiting, no file upload validation yet (nothing to validate —
+- **Rate limiting exists only for the public widget endpoint**; sign-in/
+  sign-up have none. No file upload validation (nothing to validate —
   no uploads exist). See `docs/SECURITY.md` → Known gaps.
 - **No category-management UI** — `createProductCategory`/
   `createServiceCategory` exist as services; catalogue create/edit forms
   only pick among existing categories.
-- **No quotations/orders/payments** — the rest of Phase 14's commerce
-  scope; only `Appointment` exists so far.
-- **Appointment booking has no conflict/slot checking** — no
-  `AvailabilitySlot` model yet; double-booking the same time is allowed.
+- **No PaymentLink/PaymentTransaction** — `Payment` honestly records a
+  payment already received (cash/UPI/bank/card); no real gateway is
+  wired to this machine, so there's nothing to generate a hosted
+  checkout link or a live transaction for. See `docs/DATABASE.md`.
 - **The mock AI provider can't parse relative dates** — when it books an
   appointment, it always uses next-day 11:00 local as a fixed default,
   not whatever date the customer actually said ("this Saturday", etc.).
@@ -650,14 +775,47 @@ elsewhere.
   `Notification` has for delivery). See `docs/DATABASE.md`.
 - **Notifications are in-app only** — no email/SMS/push delivery for any
   notification, automation-triggered or otherwise.
+- **The widget doesn't recognize a returning visitor** — every new
+  browser session gets a fresh anonymous `Customer` row (no name/email
+  collected). A returning customer's history doesn't merge across
+  visits unless they're on the same `conversationId` (kept in
+  `sessionStorage`, so it survives a refresh but not a new tab/session).
+- **The Redis-backed rate limiter's in-memory fallback is single-
+  instance-only** — correct today (this runs as one server process), a
+  real gap the moment it doesn't. See `docs/SECURITY.md`.
+- **Vitest still can't run on this machine** — confirmed (not just
+  assumed) that downgrading the `vitest` package alone doesn't help: a
+  hoisted `rolldown` dependency gets pulled into Vite's own
+  config-loading path regardless of which Vitest version is pinned.
+  Real fix is still the Node upgrade (≥20.12, ideally ≥20.19 to also
+  drop the `prisma`/`@prisma/client` 6.19.3 pin).
 
-## Next steps (core-first order — see "Build order decision" above)
+## Where this stands relative to the original 20-phase spec
 
-1. The rest of commerce — quotations/orders/payments (14,
-   `AvailabilitySlot` included), the customer-facing widget (16),
-   analytics (17), and hardening/testing/polish (18–20), per the
-   original phase list. Update this file after each phase, not just at
-   the end.
+Every phase in the original list now has a real, live-verified
+implementation: 0-1 (foundation), 3 (catalogue/CRM schema), 4-5 (owner
+workspace CRUD), 6 (conversations), 7-8 (AI orchestration), 9-10
+(knowledge + governance), 13 (automations), 14 (appointments +
+commerce), 15 (multi-industry: Services + the Dental guardrail), 16
+(customer widget), 17 (analytics), and a first pass at 18-20
+(hardening/testing/polish — see Known limitations above for what's
+honestly still open in that last group, principally the Anthropic
+provider being unverified against a real API key and the Vitest/Node
+blocker).
+
+**Not built, by deliberate scope decision, not oversight** — see the
+relevant "Done" section above for the reasoning in each case:
+- The rest of Phase 12's spec (team management UI beyond the
+  `team:manage` permission existing) and Phase 11 (settings/billing) —
+  never explicitly scoped into a phase in `CLAUDE.md`'s own plan; would
+  be the natural next phase if this continues.
+- `searchServices`/`getServiceDetails` AI tools (Salon/Dental can't be
+  searched by the AI mid-conversation yet — Products can).
+- A real payment gateway, category-management UI, `AvailabilitySlot`-
+  style multi-resource scheduling, email/SMS/push delivery for
+  notifications, and a distributed (non-Redis-fallback) rate limiter.
+- Full seeded demo data for Restaurant and Electronics (code-verified,
+  not dataset-verified — see Phase 15's "Done" note).
 
 **Also worth doing soon, not tied to a specific phase**: get a real
 `ANTHROPIC_API_KEY` into `.env` and live-verify the `anthropic` provider

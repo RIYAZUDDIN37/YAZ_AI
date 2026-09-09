@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "@/server/db/client";
 import { writeAuditLog } from "@/services/audit/log";
 import { runAutomations } from "@/services/automations/run";
+import { findAppointmentConflict } from "@/services/appointments/check-conflict";
 import type { AgentTool } from "@/services/ai/types";
 
 const inputSchema = z.object({
@@ -42,6 +43,11 @@ export const createAppointmentTool: AgentTool<Input, CreateAppointmentResult | {
     const scheduledAt = new Date(input.scheduledAt);
     if (Number.isNaN(scheduledAt.getTime())) {
       return { error: "Invalid date/time — use ISO 8601 format." };
+    }
+
+    const conflict = await findAppointmentConflict(ctx.businessId, scheduledAt, 30);
+    if (conflict) {
+      return { error: `That time is already booked (${conflict.scheduledAt.toLocaleString()}) — offer the customer a different slot.` };
     }
 
     const appointment = await db.appointment.create({

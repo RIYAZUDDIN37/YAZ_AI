@@ -10,6 +10,7 @@ import { RulesPanel } from "./rules-panel";
 import { GoalsPanel } from "./goals-panel";
 import { KnowledgePanel } from "./knowledge-panel";
 import { TestPanel } from "./test-panel";
+import { WidgetPanel } from "./widget-panel";
 
 export const metadata: Metadata = { title: "Train AI Employee" };
 
@@ -61,6 +62,7 @@ export default async function AgentTrainingPage() {
           <TabsTrigger value="goals">Goals</TabsTrigger>
           <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
           <TabsTrigger value="test">Test</TabsTrigger>
+          <TabsTrigger value="widget">Website widget</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
@@ -81,6 +83,10 @@ export default async function AgentTrainingPage() {
 
         <TabsContent value="test" className="mt-4">
           <TestPanel agentName={agent.name} conversation={testConversation} />
+        </TabsContent>
+
+        <TabsContent value="widget" className="mt-4">
+          <WidgetPanel slug={business.slug} />
         </TabsContent>
       </Tabs>
     </div>

@@ -20,6 +20,9 @@ Business ──< ProductCategory ──< Product ──< ProductVariant
                        ──< Conversation ──< Message
                                         ──< AgentExecution ──< AgentAction
                        ──< Appointment
+                       ──< Quotation ──< QuotationItem
+                       ──< Order ──< OrderItem
+                                 ──< Payment
          ──< KnowledgeDocument ──< KnowledgeChunk
          ──< Automation ──< WorkflowExecution
          ──< Notification
@@ -99,15 +102,30 @@ AIAgent ──< AgentExecution
   qualification signals become their own `LeadActivity` rows written
   from actual agent execution — never seeded or fabricated ahead of that
   (see `prisma/seed.ts`'s doc comment).
-- **Appointment** — spec section 12 / Phase 14 (partial — quotations,
-  orders, and payments are still design-only). Labelled per-industry by
+- **Appointment** — spec section 12 / Phase 14. Labelled per-industry by
   `IndustryConfig.appointmentLabel` ("Showroom Visit" for Furniture);
   the schema itself is shared across verticals. `customerId` and
   `leadId` are both optional (a walk-in with no prior lead can still get
   an appointment), and `source` mirrors `Lead.source`'s "AI
   conversation" vs. staff-booked convention — the AI's `createAppointment`
   tool writes here through the same permissioned path as everything
-  else it does.
+  else it does. No `AvailabilitySlot` table — conflict checking
+  (`src/services/appointments/check-conflict.ts`) queries existing rows
+  for an overlapping window directly, treating the business as one
+  implicit resource; real and useful today, honestly simpler than
+  multi-resource scheduling.
+- **Quotation / QuotationItem / Order / OrderItem / Payment** — spec
+  section 14 (rest of commerce). `QuotationItem`/`OrderItem` each carry
+  a `productId` *or* `serviceId` depending on
+  `IndustryConfig.catalogueType`
+  (`src/services/commerce/catalogue-lookup.ts` resolves either), with
+  `unitPrice` copied from the catalogue at add-time — a sent quotation
+  must not silently reprice itself if the catalogue changes afterward.
+  `Payment` honestly models a staff member *recording* a payment
+  they've already received (cash/UPI/bank transfer/card) — there's no
+  real payment gateway wired on this machine, so there's deliberately
+  no `PaymentLink`/`PaymentTransaction`; those only mean something once
+  one exists.
 - **Automation / WorkflowExecution / Notification** — Phase 13. No
   cron/queue infra exists, so an `Automation` is event-driven, not
   time-scheduled: `src/services/automations/run.ts` runs synchronously,
@@ -195,6 +213,17 @@ to re-run via `npm run db:seed`.
   automation it logs is deleted). `Notification` → `Cascade` from both
   `Business` and `User` — unlike audit/history rows, a notification
   really should disappear if the account it was for is gone.
+- `Quotation`/`Order` → `Cascade` from `Business`; `customerId`/`leadId`
+  → `SetNull` (same reasoning as `Lead.customerId` — a quotation or
+  order should outlive the customer/lead record it started from).
+  `QuotationItem`/`OrderItem` → `Cascade` from their parent (a line item
+  is meaningless without it); their `productId`/`serviceId` →
+  `SetNull` (deleting a catalogue item shouldn't erase the historical
+  record of what was quoted/ordered, just the live link to it).
+  `Order.quotationId` → `SetNull` (an order should outlive the
+  quotation it was converted from). `Payment` → `Cascade` from `Order`;
+  `recordedByUserId` → `SetNull` (losing the staff member who recorded
+  it shouldn't delete the payment record itself).
 
 ## Tenant isolation, structurally
 
@@ -211,10 +240,10 @@ by convention. See [SECURITY.md](./SECURITY.md).
   `AutomationAction` join tables than that; the trigger/action shape is
   a fixed enum pair plus one `Json` config column each, not a separate
   table per trigger/action instance.
-- **Phase 14 (rest of commerce)**: `Appointment` itself now exists (see
-  above); still missing: `AppointmentType`, `AvailabilitySlot` (today's
-  booking has no conflict/slot checking), `Quotation`, `QuotationItem`,
-  `Order`, `OrderItem`, `Payment`, `PaymentLink`, `PaymentTransaction`.
+- **Phase 14**: `Appointment`, `Quotation`/`QuotationItem`,
+  `Order`/`OrderItem`, and `Payment` all now exist (see above). Still
+  missing: `AppointmentType`; a real payment gateway's `PaymentLink`/
+  `PaymentTransaction` (would need an actual provider — none is wired).
 - Also queued: `Integration`, `Subscription`.
 
 Each addition gets the same treatment as what's here: a tenant foreign

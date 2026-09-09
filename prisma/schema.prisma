@@ -108,6 +108,7 @@ model User {
   assignedConversations Conversation[] @relation("AssignedConversations")
   sentMessages          Message[]      @relation("SentMessages")
   assignedAppointments  Appointment[]  @relation("AssignedAppointments")
+  recordedPayments      Payment[]
   notifications         Notification[]
 
   @@map("users")
@@ -178,6 +179,9 @@ model Business {
   automations        Automation[]
   workflowExecutions WorkflowExecution[]
   notifications      Notification[]
+  quotations         Quotation[]
+  orders             Order[]
+  payments           Payment[]
 
   @@index([organizationId])
   @@map("businesses")
@@ -346,6 +350,8 @@ model Product {
   category    ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   variants    ProductVariant[]
   inventoryItems InventoryItem[]
+  quotationItems QuotationItem[]
+  orderItems     OrderItem[]
 
   @@unique([businessId, slug])
   @@index([businessId])
@@ -424,6 +430,8 @@ model Service {
   updatedAt       DateTime         @updatedAt
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category        ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  quotationItems  QuotationItem[]
+  orderItems      OrderItem[]
 
   @@unique([businessId, slug])
   @@index([businessId])
@@ -464,6 +472,8 @@ model Customer {
   leads      Lead[]
   conversations Conversation[]
   appointments  Appointment[]
+  quotations    Quotation[]
+  orders        Order[]
 
   @@index([businessId])
   @@index([email])
@@ -497,6 +507,7 @@ model Lead {
   customer   Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   activities LeadActivity[]
   appointments Appointment[]
+  quotations   Quotation[]
 
   @@index([businessId])
   @@index([customerId])
@@ -539,6 +550,141 @@ model Appointment {
   @@index([businessId, scheduledAt])
   @@index([customerId])
   @@map("appointments")
+}
+
+// ---------------------------------------------------------------------------
+// Commerce (Phase 14, rest of): Quotation -> Order -> Payment. No real
+// payment gateway is wired (no Stripe/Razorpay key exists on this
+// machine), so `Payment` honestly models a staff member *recording* a
+// payment they already received (cash, UPI, bank transfer, card
+// terminal) rather than fabricating hosted checkout. There's
+// deliberately no PaymentLink/PaymentTransaction — those only mean
+// something once a real gateway exists; see docs/DATABASE.md.
+//
+// No AvailabilitySlot table either: appointment conflict checking
+// (src/services/appointments/create-appointment.ts) queries existing
+// Appointment rows for an overlapping window directly, rather than
+// pre-computing a slot grid nothing else reads yet. Treats the business
+// as one implicit resource/capacity — real, useful today, and honestly
+// simpler than multi-resource scheduling, not a disguised version of it.
+// ---------------------------------------------------------------------------
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Quotation {
+  id         String          @id @default(cuid())
+  businessId String
+  customerId String?
+  leadId     String?
+  status     QuotationStatus @default(DRAFT)
+  notes      String?
+  validUntil DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer   Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  items      QuotationItem[]
+  order      Order?
+
+  @@index([businessId])
+  @@index([customerId])
+  @@map("quotations")
+}
+
+/// A line item's `unitPrice` is copied at add-time from the Product/
+/// Service's current price — a quotation must not silently reprice
+/// itself if the catalogue changes after it was sent.
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  productId   String?
+  serviceId   String?
+  description String
+  quantity    Int       @default(1)
+  unitPrice   Decimal   @db.Decimal(10, 2)
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service     Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([quotationId])
+  @@map("quotation_items")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  FULFILLED
+  CANCELLED
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  businessId  String
+  customerId  String?
+  quotationId String?     @unique
+  status      OrderStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer    Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  quotation   Quotation?  @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+  payments    Payment[]
+
+  @@index([businessId])
+  @@index([customerId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  productId   String?
+  serviceId   String?
+  description String
+  quantity    Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service     Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CARD
+  OTHER
+}
+
+/// A record of a payment already received, entered by staff — not a
+/// live transaction. See the section comment above for why.
+model Payment {
+  id               String        @id @default(cuid())
+  businessId       String
+  orderId          String
+  amount           Decimal       @db.Decimal(10, 2)
+  method           PaymentMethod
+  reference        String?
+  recordedByUserId String?
+  createdAt        DateTime      @default(now())
+  business         Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  recordedBy       User?         @relation(fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([orderId])
+  @@map("payments")
 }
 
 /// Timeline entries for a lead — status changes, notes, and (Phase 8) AI

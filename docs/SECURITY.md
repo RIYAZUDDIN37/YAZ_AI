@@ -83,15 +83,51 @@ the ability to run arbitrary queries. Every tool call is authorized
 against the agent's configured permissions and logged to `AuditLog`
 before its result reaches the model.
 
+## The one public, unauthenticated route
+
+Every route in the app requires a session except one: the customer-
+facing widget (Phase 16 — `src/app/widget/[slug]/page.tsx` and
+`src/app/api/widget/[slug]/message/route.ts`), meant to be embedded in
+an `<iframe>` on a business's own website so *their* customers can
+chat with the AI without an account. Its security model is different
+by necessity, not by oversight:
+
+- **Rate-limited by IP** (`src/lib/rate-limit.ts`), Redis-backed —
+  finally a real use for the Redis instance `docker-compose.yml` has
+  provisioned since Phase 0-1. Falls back to an in-memory counter if
+  Redis is unreachable (fails open on a Redis outage, never hangs the
+  widget) — real, but only correct for a single server instance; the
+  Redis path is what's correct for however many instances this actually
+  runs as.
+- **Tenant-scoped by business slug**, and any client-supplied
+  `conversationId` is re-validated against that business and
+  `isTest: false` before anything is read or written — the same "never
+  trust a client-supplied id as authorization" rule as everywhere else
+  in the app, just with "no session" instead of "wrong session" as the
+  threat being checked for.
+- **`X-Frame-Options` is deliberately not sent on `/widget/*`**
+  (`next.config.ts`) — the one route that needs to be embeddable
+  cross-origin, everything else keeps clickjacking protection.
+- Creates a real, minimal `Customer` row ("Website visitor") per new
+  conversation — no email/name is collected or required, so there's
+  nothing sensitive to leak even if the rate limit were bypassed.
+
 ## Known gaps (honest, not yet addressed)
 
 These are real gaps, tracked here rather than glossed over:
 
-- **No rate limiting yet.** Sign-in/sign-up actions have no throttling.
-  Planned for Phase 18 (security hardening) via a Redis-backed limiter
-  (Redis is already provisioned in `docker-compose.yml` for this).
-- **No file upload validation yet** — no uploads exist yet (Phase 9).
+- **Sign-in/sign-up still have no rate limiting** — only the public
+  widget endpoint does (see above). Auth.js's own credential-stuffing
+  protections aside, a dedicated limiter on `/sign-in` and `/sign-up`
+  is still worth adding.
+- **No file upload validation yet** — no uploads exist yet (Phase 9's
+  knowledge documents are pasted text, not files).
 - **No CSRF-specific handling beyond what Next.js Server Actions provide
   by default** (same-origin enforcement on the action's encrypted
-  reference) — revisited in Phase 18.
-- **No automated security test suite yet** — Phase 19.
+  reference).
+- **No automated security test suite yet** — `tests/unit/` has real
+  unit tests (permissions, chunking, slugs) but nothing scanning for
+  injection/XSS/auth-bypass classes of bugs specifically.
+- **The in-memory rate-limit fallback isn't distributed** — correct
+  today (this runs as one instance), a real limitation the moment it
+  doesn't.
