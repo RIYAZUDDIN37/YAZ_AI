@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/server/db/client";
 import { getAIProvider } from "@/services/ai/provider";
 import { TOOL_REGISTRY } from "@/services/ai/tools/registry";
-import type { OrchestratorMessage } from "@/services/ai/types";
+import type { OrchestratorMessage, ToolCallRecord } from "@/services/ai/types";
 import { retrieveKnowledge, type RetrievedChunk } from "@/services/knowledge/retrieve";
 import { writeAuditLog } from "@/services/audit/log";
 
@@ -97,6 +97,19 @@ export async function runAgentTurn(params: {
       toolContext: { businessId, conversationId },
       knowledgeContext,
     });
+
+    // Governance enforced in code, not just prompted (see this file's own
+    // header comment): a system-prompt instruction not to invent products
+    // is a request, not a guarantee — smaller/weaker models have been
+    // observed ignoring it outright and fabricating a full fake product
+    // line after a genuinely empty search result. If the last catalogue
+    // search this turn found nothing, the reply the customer sees is
+    // forced to an honest fallback no matter what text the model
+    // generated — this doesn't depend on any model behaving correctly.
+    if (!result.escalated && hasEmptyCatalogResult(result.toolCalls)) {
+      result.replyText =
+        "I couldn't find an exact match for that in our current catalogue — could you tell me a bit more about what you're looking for, or your budget?";
+    }
 
     for (const call of result.toolCalls) {
       trace.push({
@@ -195,6 +208,25 @@ export async function runAgentTurn(params: {
 
     throw error;
   }
+}
+
+/** Tool names that return a catalogue listing — if the last one of these
+ * called this turn found nothing, there is nothing real to have replied
+ * about. */
+const CATALOG_SEARCH_TOOLS = new Set(["searchProducts"]);
+
+// Exported for direct unit testing — pure logic, no reason to only be
+// exercisable through a slow, flaky live LLM call.
+export function hasEmptyCatalogResult(toolCalls: ToolCallRecord[]): boolean {
+  const catalogCalls = toolCalls.filter((call) => CATALOG_SEARCH_TOOLS.has(call.name));
+  if (catalogCalls.length === 0) return false;
+  const last = catalogCalls[catalogCalls.length - 1];
+  // No real catalogue data either way: a genuine zero-match search, or the
+  // call itself failed (e.g. a local model passing a malformed argument
+  // that fails Zod validation) — in both cases there's nothing real for a
+  // reply to have been based on.
+  if (last.status === "ERROR") return true;
+  return Array.isArray(last.output) && last.output.length === 0;
 }
 
 function buildSystemPrompt(params: {
