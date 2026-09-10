@@ -21,6 +21,12 @@ const envSchema = z.object({
 
   AUTH_SECRET: z.string().min(16, "AUTH_SECRET must be at least 16 characters"),
   NEXTAUTH_URL: z.url().optional(),
+  // Auth.js reads this directly from process.env by its own convention —
+  // required once the app runs under `next start` (production mode).
+  // Dev mode (`next dev`) silently trusts localhost; production mode
+  // rejects any host it wasn't explicitly told to trust, which otherwise
+  // surfaces as an opaque "UntrustedHost" error on every sign-in attempt.
+  AUTH_TRUST_HOST: z.string().optional(),
 
   REDIS_URL: z.string().optional(),
 
