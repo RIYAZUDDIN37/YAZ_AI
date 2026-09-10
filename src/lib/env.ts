@@ -24,10 +24,16 @@ const envSchema = z.object({
 
   REDIS_URL: z.string().optional(),
 
-  AI_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
+  AI_PROVIDER: z.enum(["mock", "anthropic", "ollama"]).default("mock"),
   ANTHROPIC_API_KEY: z.string().optional(),
   AI_CHAT_MODEL: z.string().default("claude-opus-5"),
   AI_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+
+  // Local, self-hosted provider (AI_PROVIDER="ollama") — no key needed,
+  // points at the `ollama` docker-compose service (or one already running
+  // on this machine) instead of a paid cloud API.
+  OLLAMA_BASE_URL: z.url().default("http://localhost:11434"),
+  OLLAMA_MODEL: z.string().default("llama3.2"),
 
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
   S3_ENDPOINT: z.string().optional(),

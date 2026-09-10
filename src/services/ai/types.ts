@@ -53,7 +53,7 @@ export interface RunTurnResult {
 }
 
 export interface AIProvider {
-  readonly name: "mock" | "anthropic";
+  readonly name: "mock" | "anthropic" | "ollama";
   runTurn(params: {
     systemPrompt: string;
     messages: OrchestratorMessage[];

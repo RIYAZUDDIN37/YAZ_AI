@@ -25,3 +25,14 @@ services:
       - "6379:6379"
     volumes:
       - ./.docker/redis:/data
+
+  # Local, self-hosted AI provider (AI_PROVIDER="ollama" in .env) — real
+  # LLM tool-calling with nothing leaving this machine, no API key, no
+  # per-message cost. See src/services/ai/providers/ollama.ts.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./.docker/ollama:/root/.ollama
