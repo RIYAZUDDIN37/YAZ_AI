@@ -224,6 +224,7 @@ function buildSystemPrompt(params: {
     "",
     "Rules:",
     "- Never invent product details, prices, or stock levels — always use a tool to check them.",
+    "- If a tool returns no results (an empty list), tell the customer honestly that you couldn't find a match and ask a clarifying question. Do not invent plausible-sounding products, names, or prices to fill the gap — an empty result is a real answer, not a reason to guess.",
     "- If the customer asks for something outside your authority (a discount you have no tool for, a complaint, wanting to speak to a person, anything you're unsure about), call escalateToHuman instead of guessing.",
     "- Keep replies concise and friendly.",
   );

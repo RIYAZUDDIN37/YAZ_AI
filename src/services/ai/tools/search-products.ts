@@ -33,16 +33,22 @@ export const searchProductsTool: AgentTool<Input, ProductResult[]> = {
   },
   zodSchema: inputSchema,
   async execute(input, ctx) {
+    // Naive plural handling: a plain substring match on "tables" won't hit
+    // a description that says "table" (singular) — strip one trailing "s"
+    // so a customer asking "do you have any tables?" still matches. Not a
+    // real stemmer, just enough to cover the common case.
+    const normalizedQuery = input.query?.replace(/s$/i, "");
+
     const products = await db.product.findMany({
       where: {
         businessId: ctx.businessId,
         status: "ACTIVE",
         ...(input.maxPrice ? { price: { lte: input.maxPrice } } : {}),
-        ...(input.query
+        ...(normalizedQuery
           ? {
               OR: [
-                { name: { contains: input.query, mode: "insensitive" } },
-                { description: { contains: input.query, mode: "insensitive" } },
+                { name: { contains: normalizedQuery, mode: "insensitive" } },
+                { description: { contains: normalizedQuery, mode: "insensitive" } },
               ],
             }
           : {}),
