@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/server/db/client";
+import { env } from "@/lib/env";
+import { sendEmail } from "@/services/notifications/send-email";
 
 /**
  * The automation engine (Phase 13). No cron/queue exists in this app —
@@ -65,7 +67,7 @@ async function executeAction(
     case "NOTIFY_TEAM": {
       const members = await db.organizationMember.findMany({
         where: { organization: { businesses: { some: { id: businessId } } } },
-        select: { userId: true },
+        select: { userId: true, user: { select: { email: true } } },
       });
       const title = "Automation triggered";
       const body = config.message ?? describeEvent(event);
@@ -77,7 +79,21 @@ async function executeAction(
           body,
         })),
       });
-      return `Notified ${members.length} team member(s): "${body}"`;
+
+      // Real delivery outside the app — the in-app notification above
+      // only reaches someone already looking at the dashboard. No-ops
+      // cleanly with no RESEND_API_KEY configured (see send-email.ts).
+      const business = await db.business.findUnique({ where: { id: businessId }, select: { name: true } });
+      const emailResult = await sendEmail({
+        to: members.map((m) => m.user.email),
+        subject: `${title} — ${business?.name ?? "Your business"}`,
+        html: `<p>${body}</p><p><a href="${env.NEXTAUTH_URL ?? ""}/dashboard/inbox">Open Inbox</a></p>`,
+      });
+
+      const emailNote = emailResult.sent
+        ? `email sent to ${members.length}`
+        : `email skipped (${emailResult.error})`;
+      return `Notified ${members.length} team member(s) in-app, ${emailNote}: "${body}"`;
     }
 
     case "ADD_LEAD_NOTE": {

@@ -41,6 +41,14 @@ const envSchema = z.object({
   OLLAMA_BASE_URL: z.url().default("http://localhost:11434"),
   OLLAMA_MODEL: z.string().default("llama3.2"),
 
+  // Real email delivery for the NOTIFY_TEAM automation action (see
+  // src/services/notifications/send-email.ts). Optional on purpose —
+  // automations must keep working (in-app notification only) with no
+  // key configured, same "never break the real action" rule the
+  // automation engine already follows for everything else.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default("YAZ AI <onboarding@resend.dev>"),
+
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().optional(),
