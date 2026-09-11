@@ -28,10 +28,14 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="border-b border-border/60">
+      {/* Scoped dark: flips every token-based child (NavLink, Badge, ...) to
+          the dark palette without touching those components — see the
+          `dark` custom-variant in globals.css. Chosen from the "Indigo
+          Glow" UI mockup direction. */}
+      <header className="dark border-b border-border bg-background">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <Logo />
+            <Logo dark />
             <span className="h-5 w-px bg-border" aria-hidden />
             <span className="text-sm font-medium">{business.name}</span>
             <Badge variant="secondary" className="text-[10px] capitalize">
