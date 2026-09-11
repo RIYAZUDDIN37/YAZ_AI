@@ -1,0 +1,40 @@
+name: CI
+
+# Runs on every push and pull request — typecheck, lint, and a real
+# production build all have to pass before this is trusted to deploy.
+# Vercel's own GitHub integration handles actual deployment separately
+# (on push to main) — this workflow is a quality gate, not the deploy
+# step itself.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # Dummy values sufficient for env.ts's format validation and a
+          # production build — no live services are actually contacted
+          # at build time (no page fetches the DB at build/static-gen
+          # time; everything data-backed is server-rendered on request).
+          DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+          AUTH_SECRET: "ci-only-placeholder-not-a-real-secret-value"
+          AI_PROVIDER: "mock"
