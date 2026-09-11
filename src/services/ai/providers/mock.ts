@@ -30,6 +30,10 @@ const ESCALATION_KEYWORDS = [
   "50% off",
 ];
 
+// Industry-agnostic on purpose — the same mock provider serves every
+// industry (see src/config/industries.ts), so this can't only speak
+// furniture-showroom language. Restaurant reservations, salon/dental
+// appointments, and showroom visits all land here.
 const BOOKING_KEYWORDS = [
   "showroom visit",
   "book a visit",
@@ -38,6 +42,14 @@ const BOOKING_KEYWORDS = [
   "set up a visit",
   "come by the showroom",
   "visit the showroom",
+  "table reservation",
+  "book a table",
+  "reserve a table",
+  "make a reservation",
+  "book a reservation",
+  "book an appointment",
+  "book a slot",
+  "schedule an appointment",
 ];
 
 const PRODUCT_KEYWORDS = [
