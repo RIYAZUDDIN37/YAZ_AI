@@ -34,23 +34,18 @@ const ESCALATION_KEYWORDS = [
 // industry (see src/config/industries.ts), so this can't only speak
 // furniture-showroom language. Restaurant reservations, salon/dental
 // appointments, and showroom visits all land here.
-const BOOKING_KEYWORDS = [
-  "showroom visit",
-  "book a visit",
-  "book an appointment",
-  "schedule a visit",
-  "set up a visit",
-  "come by the showroom",
-  "visit the showroom",
-  "table reservation",
-  "book a table",
-  "reserve a table",
-  "make a reservation",
-  "book a reservation",
-  "book an appointment",
-  "book a slot",
-  "schedule an appointment",
-];
+//
+// Pattern-based, not an exact-phrase list: real people don't reliably
+// type articles ("book table" and "reserve table" are just as common
+// as "book a table") — a fixed phrase list is a losing battle against
+// that, one missed variant at a time. This checks for a booking VERB
+// near a booking NOUN, in either order, rather than one exact string.
+const BOOKING_VERB = /\b(book|reserve|schedule)\w*\b/i;
+const BOOKING_NOUN = /\b(table|reservation|appointment|visit|slot)s?\b/i;
+
+function isBookingRequest(text: string): boolean {
+  return BOOKING_VERB.test(text) && BOOKING_NOUN.test(text);
+}
 
 const PRODUCT_KEYWORDS = [
   "table",
@@ -182,7 +177,7 @@ export const mockProvider: AIProvider = {
       };
     }
 
-    if (BOOKING_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    if (isBookingRequest(text)) {
       const requestedTime = extractTime(text);
       if (!requestedTime) {
         // Honest simplification: rather than silently guessing a slot
