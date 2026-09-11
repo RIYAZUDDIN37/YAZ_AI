@@ -19,10 +19,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - run: npm ci
+
+      # No postinstall hook regenerates this from schema.prisma, so a
+      # fresh CI checkout gets whatever stub @prisma/client falls back
+      # to without it — explicit and deterministic instead of relying
+      # on that.
+      - run: npx prisma generate
 
       - run: npm run typecheck
 
