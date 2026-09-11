@@ -70,6 +70,45 @@ const PRODUCT_KEYWORDS = [
 
 const STOCK_KEYWORDS = ["stock", "available", "in stock"];
 
+/**
+ * Extracts a time-of-day from free text ("7pm", "7:30 PM", "noon",
+ * "this evening") and returns the Date it resolves to (today if
+ * "today"/"tonight" is mentioned and the time hasn't passed yet,
+ * tomorrow otherwise). Returns null when no time-like phrase is found
+ * — the caller then asks for one instead of guessing.
+ */
+function extractTime(text: string): Date | null {
+  let hour: number | undefined;
+  let minute = 0;
+
+  const clockMatch = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (clockMatch) {
+    hour = parseInt(clockMatch[1], 10) % 12;
+    minute = clockMatch[2] ? parseInt(clockMatch[2], 10) : 0;
+    if (clockMatch[3].toLowerCase() === "pm") hour += 12;
+  } else if (/\bnoon\b/.test(text)) {
+    hour = 12;
+  } else if (/\bmidnight\b/.test(text)) {
+    hour = 0;
+  } else if (/\bmorning\b/.test(text)) {
+    hour = 10;
+  } else if (/\bafternoon\b/.test(text)) {
+    hour = 14;
+  } else if (/\b(evening|tonight)\b/.test(text)) {
+    hour = 19;
+  }
+  if (hour === undefined) return null;
+
+  const scheduledAt = new Date();
+  const mentionsToday = /\b(today|tonight)\b/.test(text);
+  const alreadyPassedToday = mentionsToday && scheduledAt.getHours() > hour;
+  if (!mentionsToday || alreadyPassedToday) {
+    scheduledAt.setDate(scheduledAt.getDate() + 1);
+  }
+  scheduledAt.setHours(hour, minute, 0, 0);
+  return scheduledAt;
+}
+
 function extractMaxPrice(text: string): number | undefined {
   const thousandsMatch = text.match(/(\d[\d,]*)\s*k\b/);
   if (thousandsMatch) {
@@ -80,6 +119,42 @@ function extractMaxPrice(text: string): number | undefined {
     return parseInt(plainMatch[1].replace(/,/g, ""), 10);
   }
   return undefined;
+}
+
+async function bookAppointment(
+  scheduledAt: Date,
+  purpose: string,
+  toolContext: Parameters<typeof executeTool>[2],
+  toolCalls: ToolCallRecord[],
+) {
+  const bookingRecord = await executeTool(
+    "createAppointment",
+    { purpose, scheduledAt: scheduledAt.toISOString() },
+    toolContext,
+  );
+  toolCalls.push(bookingRecord);
+
+  if (bookingRecord.status === "SUCCESS" && !("error" in (bookingRecord.output as object))) {
+    const dateLabel = scheduledAt.toLocaleString("en-IN", {
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return {
+      replyText: `You're booked for ${dateLabel}. We'll see you then!`,
+      toolCalls,
+      escalated: false,
+      stopReason: "end_turn" as const,
+    };
+  }
+
+  return {
+    replyText:
+      "I'd love to set that up, but I don't have your contact details linked to this conversation yet — a team member will follow up to confirm.",
+    toolCalls,
+    escalated: false,
+    stopReason: "end_turn" as const,
+  };
 }
 
 export const mockProvider: AIProvider = {
@@ -108,42 +183,31 @@ export const mockProvider: AIProvider = {
     }
 
     if (BOOKING_KEYWORDS.some((keyword) => text.includes(keyword))) {
-      // Honest simplification: the mock provider can't parse "this
-      // Saturday" into a real date the way a real LLM would — it always
-      // books the next day at 11:00 local time. A real appointment row
-      // still gets written; only the "when" is a fixed default.
-      const scheduledAt = new Date();
-      scheduledAt.setDate(scheduledAt.getDate() + 1);
-      scheduledAt.setHours(11, 0, 0, 0);
-
-      const bookingRecord = await executeTool(
-        "createAppointment",
-        { purpose: originalText, scheduledAt: scheduledAt.toISOString() },
-        toolContext,
-      );
-      toolCalls.push(bookingRecord);
-
-      if (bookingRecord.status === "SUCCESS" && !("error" in (bookingRecord.output as object))) {
-        const dateLabel = scheduledAt.toLocaleString("en-IN", {
-          weekday: "long",
-          hour: "numeric",
-          minute: "2-digit",
-        });
+      const requestedTime = extractTime(text);
+      if (!requestedTime) {
+        // Honest simplification: rather than silently guessing a slot
+        // (the old behavior), ask — real concrete options, not a fake
+        // open-ended "what time works?" that implies more flexibility
+        // than a keyword-matching provider can actually handle.
         return {
-          replyText: `You're booked for ${dateLabel}. We'll see you then!`,
+          replyText:
+            "What time would work for you? We have slots at 12:00 PM, 2:00 PM, 7:00 PM, and 8:30 PM.",
           toolCalls,
           escalated: false,
           stopReason: "end_turn",
         };
       }
+      return bookAppointment(requestedTime, originalText, toolContext, toolCalls);
+    }
 
-      return {
-        replyText:
-          "I'd love to set that up, but I don't have your contact details linked to this conversation yet — a team member will follow up to confirm.",
-        toolCalls,
-        escalated: false,
-        stopReason: "end_turn",
-      };
+    // No booking keyword this turn, but the message is basically just a
+    // time ("7pm", "how about 2:30") — the natural reply to the question
+    // above. Mock has no real memory of the prior turn, so this
+    // recognizes the pattern instead: a bare time mention with no
+    // product keyword of its own is treated as answering it.
+    const bareTime = extractTime(text);
+    if (bareTime && !PRODUCT_KEYWORDS.some((keyword) => text.includes(keyword))) {
+      return bookAppointment(bareTime, originalText, toolContext, toolCalls);
     }
 
     const matchedKeyword = PRODUCT_KEYWORDS.find((keyword) => text.includes(keyword));
