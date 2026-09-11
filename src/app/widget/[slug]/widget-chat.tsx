@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Bot, Loader2, SendHorizontal } from "lucide-react";
+import { Bot, Loader2, RotateCcw, SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,18 @@ export function WidgetChat({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  function startNewChat() {
+    setMessages([]);
+    setError(undefined);
+    setDraft("");
+    conversationIdRef.current = null;
+    try {
+      sessionStorage.removeItem(storageKey(slug));
+    } catch {
+      // Storage unavailable — the in-memory reset above still applies.
+    }
+  }
+
   function send() {
     const body = draft.trim();
     if (!body) return;
@@ -87,10 +99,21 @@ export function WidgetChat({
         <div className="flex size-8 items-center justify-center rounded-full bg-brand/10">
           <Bot className="size-4 text-brand" />
         </div>
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-medium">{agentName}</p>
           <p className="text-xs text-muted-foreground">{businessName}</p>
         </div>
+        {messages.length > 0 ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={startNewChat}
+            aria-label="Start new chat"
+            title="Start new chat"
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
