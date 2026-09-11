@@ -42,12 +42,17 @@ const envSchema = z.object({
   OLLAMA_MODEL: z.string().default("llama3.2"),
 
   // Real email delivery for the NOTIFY_TEAM automation action (see
-  // src/services/notifications/send-email.ts). Optional on purpose —
-  // automations must keep working (in-app notification only) with no
-  // key configured, same "never break the real action" rule the
-  // automation engine already follows for everything else.
-  RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default("YAZ AI <onboarding@resend.dev>"),
+  // src/services/notifications/send-email.ts) via SMTP — a free Gmail
+  // account + App Password needs no custom domain, unlike Resend's free
+  // tier (which only sends to the account owner until a domain is
+  // verified). All optional: automations must keep working (in-app
+  // notification only) with none of this configured, same "never break
+  // the real action" rule the automation engine already follows.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().default("YAZ AI <no-reply@yaz-ai.local>"),
 
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
   S3_ENDPOINT: z.string().optional(),
