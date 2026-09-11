@@ -243,8 +243,11 @@ export const mockProvider: AIProvider = {
 
     const genericBrowse = GENERIC_BROWSE_KEYWORDS.some((keyword) => text.includes(keyword));
     const matchedKeyword = PRODUCT_KEYWORDS.find((keyword) => text.includes(keyword));
+    const catalogueIntent = genericBrowse || Boolean(matchedKeyword);
 
-    if (genericBrowse || matchedKeyword) {
+    let results: ProductResult[] = [];
+
+    if (catalogueIntent) {
       const maxPrice = extractMaxPrice(text);
       // A generic "what's on your menu?" has no specific item to search
       // for — an empty query browses the whole active catalogue instead
@@ -256,10 +259,27 @@ export const mockProvider: AIProvider = {
         toolContext,
       );
       toolCalls.push(searchRecord);
+      results = searchRecord.status === "SUCCESS" ? (searchRecord.output as ProductResult[]) : [];
+    }
 
-      const results =
-        searchRecord.status === "SUCCESS" ? (searchRecord.output as ProductResult[]) : [];
+    // A fixed keyword list can never anticipate every business's actual
+    // item names ("butter chicken" is a real product, not a category
+    // word) — only bother with this extra lookup when nothing above
+    // already found something, to avoid a DB round trip on every
+    // ordinary keyword-matched turn.
+    let nameMatched = false;
+    if (results.length === 0) {
+      const browseAll = await executeTool("searchProducts", {}, toolContext);
+      toolCalls.push(browseAll);
+      const allProducts = browseAll.status === "SUCCESS" ? (browseAll.output as ProductResult[]) : [];
+      const nameMatches = allProducts.filter((product) => text.includes(product.name.toLowerCase()));
+      if (nameMatches.length > 0) {
+        results = nameMatches;
+        nameMatched = true;
+      }
+    }
 
+    if (catalogueIntent || nameMatched) {
       if (results.length > 0) {
         const list = results
           .map((product) => `${product.name} (₹${product.price.toLocaleString("en-IN")})`)
