@@ -129,7 +129,9 @@ async function bookAppointment(
   );
   toolCalls.push(bookingRecord);
 
-  if (bookingRecord.status === "SUCCESS" && !("error" in (bookingRecord.output as object))) {
+  const output = bookingRecord.output as { error?: string } | undefined;
+
+  if (bookingRecord.status === "SUCCESS" && !output?.error) {
     const dateLabel = scheduledAt.toLocaleString("en-IN", {
       weekday: "long",
       hour: "numeric",
@@ -143,9 +145,15 @@ async function bookAppointment(
     };
   }
 
+  // Surface what the tool actually said instead of one hardcoded
+  // message for every failure reason — a slot conflict and a missing
+  // customer need genuinely different replies, not the same one.
+  const replyText = output?.error?.includes("already booked")
+    ? "That time's already taken — could you try a different one? We also have 12:00 PM, 2:00 PM, 7:00 PM, and 8:30 PM."
+    : "I'd love to set that up, but I don't have your contact details linked to this conversation yet — a team member will follow up to confirm.";
+
   return {
-    replyText:
-      "I'd love to set that up, but I don't have your contact details linked to this conversation yet — a team member will follow up to confirm.",
+    replyText,
     toolCalls,
     escalated: false,
     stopReason: "end_turn" as const,

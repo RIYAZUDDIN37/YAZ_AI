@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Bot, Loader2, RotateCcw, SendHorizontal } from "lucide-react";
+import { Bot, Loader2, SendHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -10,12 +10,6 @@ interface WidgetMessage {
   id: string;
   senderType: "CUSTOMER" | "AI" | "STAFF" | "SYSTEM";
   body: string;
-}
-
-/** Session-scoped, not persisted across browser restarts — a fresh tab
- * gets a fresh conversation, same as walking into a different chat. */
-function storageKey(slug: string) {
-  return `yaz-widget-conversation:${slug}`;
 }
 
 export function WidgetChat({
@@ -31,33 +25,14 @@ export function WidgetChat({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string>();
   const [pending, startTransition] = useTransition();
+  // No persistence at all, by design: every page open/reload starts a
+  // brand new conversation — nothing read from or written to storage.
   const conversationIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    try {
-      conversationIdRef.current = sessionStorage.getItem(storageKey(slug));
-    } catch {
-      // Storage unavailable (private browsing, etc.) — a fresh
-      // conversation starts every message; still fully functional.
-    }
-  }, [slug]);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  function startNewChat() {
-    setMessages([]);
-    setError(undefined);
-    setDraft("");
-    conversationIdRef.current = null;
-    try {
-      sessionStorage.removeItem(storageKey(slug));
-    } catch {
-      // Storage unavailable — the in-memory reset above still applies.
-    }
-  }
 
   function send() {
     const body = draft.trim();
@@ -81,11 +56,6 @@ export function WidgetChat({
           return;
         }
         conversationIdRef.current = data.conversationId;
-        try {
-          sessionStorage.setItem(storageKey(slug), data.conversationId);
-        } catch {
-          // Ignore — the in-memory ref still works for this page load.
-        }
         setMessages(data.messages);
       } catch {
         setError("Couldn't reach the server. Check your connection and try again.");
@@ -103,17 +73,6 @@ export function WidgetChat({
           <p className="text-sm font-medium">{agentName}</p>
           <p className="text-xs text-muted-foreground">{businessName}</p>
         </div>
-        {messages.length > 0 ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={startNewChat}
-            aria-label="Start new chat"
-            title="Start new chat"
-          >
-            <RotateCcw className="size-4" />
-          </Button>
-        ) : null}
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
