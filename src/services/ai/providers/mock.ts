@@ -47,6 +47,21 @@ function isBookingRequest(text: string): boolean {
   return BOOKING_VERB.test(text) && BOOKING_NOUN.test(text);
 }
 
+// Generic on purpose: matches trigger a catalogue browse with an EMPTY
+// query (the customer didn't name a specific item, so nothing narrower
+// to search for) — see GENERIC_BROWSE_KEYWORDS' use below.
+const GENERIC_BROWSE_KEYWORDS = [
+  "menu",
+  "catalogue",
+  "catalog",
+  "what do you have",
+  "what do you sell",
+  "what do you offer",
+];
+
+// Industry-agnostic on purpose, same reasoning as BOOKING_NOUN above —
+// covers furniture, restaurant, salon/dental, and electronics rather
+// than only the furniture vocabulary this list started as.
 const PRODUCT_KEYWORDS = [
   "table",
   "sofa",
@@ -61,6 +76,19 @@ const PRODUCT_KEYWORDS = [
   "living room",
   "bedroom",
   "storage",
+  "food",
+  "dish",
+  "meal",
+  "order",
+  "service",
+  "treatment",
+  "haircut",
+  "checkup",
+  "cleaning",
+  "laptop",
+  "phone",
+  "electronics",
+  "gadget",
 ];
 
 const STOCK_KEYWORDS = ["stock", "available", "in stock"];
@@ -213,13 +241,18 @@ export const mockProvider: AIProvider = {
       return bookAppointment(bareTime, originalText, toolContext, toolCalls);
     }
 
+    const genericBrowse = GENERIC_BROWSE_KEYWORDS.some((keyword) => text.includes(keyword));
     const matchedKeyword = PRODUCT_KEYWORDS.find((keyword) => text.includes(keyword));
 
-    if (matchedKeyword) {
+    if (genericBrowse || matchedKeyword) {
       const maxPrice = extractMaxPrice(text);
+      // A generic "what's on your menu?" has no specific item to search
+      // for — an empty query browses the whole active catalogue instead
+      // of literally searching for the word "menu" and finding nothing.
+      const query = genericBrowse ? undefined : matchedKeyword;
       const searchRecord = await executeTool(
         "searchProducts",
-        { query: matchedKeyword, maxPrice },
+        { query, maxPrice },
         toolContext,
       );
       toolCalls.push(searchRecord);
@@ -254,7 +287,7 @@ export const mockProvider: AIProvider = {
         toolCalls.push(leadRecord);
 
         return {
-          replyText: `I found ${results.length} match${results.length > 1 ? "es" : ""}: ${list}.${stockNote} Would you like more details, or should I set up a showroom visit?`,
+          replyText: `I found ${results.length} match${results.length > 1 ? "es" : ""}: ${list}.${stockNote} Would you like more details, or should I help you book one?`,
           toolCalls,
           escalated: false,
           stopReason: "end_turn",
